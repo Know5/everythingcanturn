@@ -147,9 +147,12 @@ def default_registry() -> Registry:
     global _LOADED
     if not _LOADED:
         _LOADED = True
-        from . import plugins  # noqa: F401  导入即注册
+        from . import plugins
 
-        plugins.load_all()
+        # 重加载场景：reset_registry() 清空后 _LOADED=False，但插件模块
+        # 已在 sys.modules 缓存。import_module 是 no-op，@register 不会跑，
+        # 注册表静默保持空——所以只要表是空的就走 reload。
+        plugins.load_all(reload=len(_REGISTRY._plugins) == 0)
     return _REGISTRY
 
 
