@@ -79,9 +79,27 @@ class JobQueue:
         self.listener = listener
         self._jobs: list[Job] = []
 
+    # 终态任务保留上限。CLI 单次进程本来活不长，但 JobQueue 也被
+    # 长驻服务复用，同样要防只增不减。
+    _KEEP_DONE = 500
+
     def add(self, job: Job) -> Job:
+        self._prune()
         self._jobs.append(job)
         return job
+
+    def _prune(self) -> None:
+        """清扫终态任务，保留最近 _KEEP_DONE 条。"""
+        done_idx = [
+            i for i, j in enumerate(self._jobs)
+            if j.state in (JobState.DONE, JobState.FAILED, JobState.CANCELLED)
+        ]
+        excess = len(done_idx) - self._KEEP_DONE
+        if excess <= 0:
+            return
+        # 从后往前删，索引不漂移；只删最旧的 excess 个终态条目
+        for i in reversed(done_idx[:excess]):
+            del self._jobs[i]
 
     def add_files(
         self,

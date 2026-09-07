@@ -28,14 +28,13 @@ PLUGINS = [
     )
 ]
 
-# 这些库自己也有动态导入：Pillow 按需加载编解码插件，py7zr 的压缩后端
-# 靠运行时查表选择。collect_submodules 全都带上。
 HEAVY = (
     collect_submodules("PIL")
     + collect_submodules("py7zr")
     + collect_submodules("fontTools")
     + collect_submodules("resvg_py")
     + collect_submodules("rawpy")
+    + collect_submodules("rarfile")
 )
 
 def strip_bloat(collection):

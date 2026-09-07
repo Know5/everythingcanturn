@@ -384,12 +384,29 @@ class Api:
 
     # ── 转换 ──
 
+    # 终态任务保留上限。前端持有每条任务的结果引用，但列表清空后
+    # 这些条目就是纯内存占用——保留最近 300 条供重启后找回产物。
+    _KEEP_DONE = 300
+
+    def _prune(self) -> None:
+        """清扫终态任务，保留最近 _KEEP_DONE 条。convert 前调用。"""
+        done = [
+            (jid, j) for jid, j in self._jobs.items()
+            if j.get("state") in ("done", "failed", "cancelled")
+        ]
+        excess = len(done) - self._KEEP_DONE
+        if excess <= 0:
+            return
+        for jid, _ in done[:excess]:
+            del self._jobs[jid]
+
     def convert(self, items: list[dict], preset: str | None, opts: dict) -> list[str]:
         """启动转换。立即返回任务 ID，进度通过 evaluate_js 推给前端。"""
         import secrets
 
         ids: list[str] = []
         with self._lock:
+            self._prune()
             out_dir = self._out_dir
         # 在入队时固定输出目录，并为同批同名产物预先消歧。
         seen: dict[tuple[str, str], int] = {}

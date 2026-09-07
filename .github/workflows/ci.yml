@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        # 从干净环境安装：验证 pyproject extras 的声明完整性
+        # （评审 P0-1 的回归防线——漏声明会在这一步直接失败）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[all,dev]"
+
+      - name: Install FFmpeg engine
+        # media 域测试需要 ffmpeg。走项目自己的引擎安装通道，
+        # 顺带验证 engines install 在干净机器上的真实可用性。
+        run: python -m convcore engines install ffmpeg --accept-hash
+
+      - name: Show environment diagnostics
+        run: python -m convcore doctor
+
+      - name: Run tests
+        run: python -m pytest --cov=convcore --cov-report=term-missing
+
+      - name: Smoke test
+        # 端到端冒烟：三种域各转一次，产物必须真实存在
+        shell: pwsh
+        run: |
+          python -c "from PIL import Image; Image.new('RGB', (64, 64), 'red').save('t.png')"
+          python -m convcore convert t.png -t webp -o t.webp --overwrite
+          python -m convcore convert t.webp -t png -o t2.png --overwrite
+          if (-not (Test-Path t.webp) -or -not (Test-Path t2.png)) { throw "smoke failed" }
+          echo "smoke OK"

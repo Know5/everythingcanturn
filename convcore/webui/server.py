@@ -164,9 +164,27 @@ class UiState:
 
     # ── 转换 ──
 
+    # 终态任务保留上限。UI 轮询要拿历史结果，但无限积累会在长会话里
+    # 缓慢吃内存——200 条足够找回最近的产物路径。
+    _KEEP_DONE = 200
+
+    def _prune(self) -> None:
+        """清扫终态任务，保留最近 _KEEP_DONE 条。enqueue 前调用。"""
+        done = [
+            (jid, j) for jid, j in self.jobs.items()
+            if j.state in ("done", "failed", "cancelled")
+        ]
+        excess = len(done) - self._KEEP_DONE
+        if excess <= 0:
+            return
+        # 终态任务按完成顺序稳定，直接砍前 excess 个
+        for jid, _ in done[:excess]:
+            del self.jobs[jid]
+
     def enqueue(self, items: list[dict[str, Any]], preset: str | None) -> list[str]:
         ids: list[str] = []
         with self.lock:
+            self._prune()
             out_dir = self.out_dir
         seen: dict[tuple[str, str], int] = {}
         with self.lock:
