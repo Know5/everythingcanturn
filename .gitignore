@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# 引擎二进制不入库，用 convcore engines install 获取
+engines/
+
+# 测试产物
+tests/golden/*.actual.*
+
+# 临时/调试产物
+*.whl
+convcore_real*.png
+convcore_window.png
+final_*.png
+
+# OS
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>convcore</title>
+<link rel="stylesheet" href="desktop.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark">⇄</span>
+    <div class="brandText">
+      <strong>convcore</strong>
+      <span id="capLine">加载中…</span>
+    </div>
+  </div>
+  <div class="barRight">
+    <button class="chip" id="btnHelp">格式</button>
+    <button class="chip" id="btnEngines">引擎</button>
+  </div>
+</header>
+
+<main id="main">
+  <!-- 空态：占满内容区的拖放目标 -->
+  <section id="empty" class="empty">
+    <div class="emptyIcon">⇣</div>
+    <h2>把文件拖进来</h2>
+    <p class="hint" id="dropHint">或者 <button class="link" id="btnPickEmpty">浏览文件</button></p>
+    <div class="domainChips" id="domainChips"></div>
+  </section>
+
+  <!-- 有文件时 -->
+  <section id="work" class="hidden">
+    <div class="toolbar">
+      <div class="tbLeft">
+        <button class="chip" id="btnPick">添加</button>
+        <button class="chip" id="btnClear">清空</button>
+        <span class="sep"></span>
+        <span class="count" id="count"></span>
+      </div>
+      <div class="tbRight">
+        <button class="chip" id="btnBulk" title="把所有文件设为同一目标">统一目标…</button>
+        <label class="sel">
+          质量
+          <select id="preset"></select>
+        </label>
+      </div>
+    </div>
+
+    <div class="outRow">
+      <span class="outLabel">输出到</span>
+      <button class="pathBtn" id="btnOutDir"><span id="outPath">源文件所在目录</span></button>
+      <button class="mini hidden" id="btnOutReset">重置</button>
+    </div>
+
+    <div id="list" class="list"></div>
+
+    <div class="footer">
+      <div class="summary" id="summary"></div>
+      <button class="go" id="btnRun">开始转换</button>
+    </div>
+  </section>
+</main>
+
+<!-- 目标格式选择器：按域分组，替代平铺下拉框 -->
+<div class="modal hidden" id="pickerModal">
+  <div class="panel">
+    <div class="panelHead">
+      <div>
+        <strong id="pickerTitle">选择目标格式</strong>
+        <span class="sub" id="pickerSub"></span>
+      </div>
+      <button class="mini" id="pickerClose">关闭</button>
+    </div>
+    <input class="search" id="pickerSearch" placeholder="搜索格式…" autocomplete="off">
+    <div class="panelBody" id="pickerBody"></div>
+    <div class="legend">
+      <span class="tier copy">⚡ 免重编码</span>
+      <span class="tier lossless">✓ 无损</span>
+      <span class="tier lossy">~ 有损</span>
+      <span class="tier structural">⚠ 丢结构</span>
+      <span class="tier inferred">⚠⚠ 需推断</span>
+    </div>
+  </div>
+</div>
+
+<!-- 引擎面板 -->
+<div class="modal hidden" id="engineModal">
+  <div class="panel">
+    <div class="panelHead">
+      <strong>引擎与插件</strong>
+      <button class="mini" id="engineClose">关闭</button>
+    </div>
+    <div class="panelBody" id="engineBody"></div>
+  </div>
+</div>
+
+<!-- 帮助面板：全格式能力矩阵 + 用法说明 -->
+<div class="modal hidden" id="helpModal">
+  <div class="panel helpPanel">
+    <div class="panelHead">
+      <strong>支持的格式</strong>
+      <button class="mini" id="helpClose">关闭</button>
+    </div>
+    <div class="panelBody" id="helpBody"></div>
+    <div class="legend">
+      <span class="tier copy">⚡ 免重编码</span>
+      <span class="tier lossless">✓ 无损</span>
+      <span class="tier lossy">~ 有损</span>
+      <span class="tier structural">⚠ 丢结构</span>
+      <span class="tier inferred">⚠⚠ 需推断</span>
+    </div>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script src="desktop.js"></script>
+</body>
+</html>

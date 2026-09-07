@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>convcore</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-token="__TOKEN__">
+
+<header class="top">
+  <div class="brand">
+    <span class="logo">⇄</span>
+    <div>
+      <h1>convcore</h1>
+      <p class="sub" id="envLine">正在检查环境…</p>
+    </div>
+  </div>
+  <button class="ghost" id="btnEnv" title="环境详情">环境</button>
+</header>
+
+<main>
+  <!-- 拖放区：落文件后按魔数嗅探类型，向注册表查可达目标 -->
+  <section id="drop" class="drop">
+    <div class="dropInner">
+      <div class="dropIcon">↓</div>
+      <p class="dropTitle">把文件拖到这里</p>
+      <p class="dropHint">拖放识别文件名后需要确认路径，<button class="link" id="btnPick">点击选择文件</button>可直接读取</p>
+    </div>
+  </section>
+
+  <!-- 文件列表：每项独立选目标，独立显示损失等级 -->
+  <section id="listWrap" class="hidden">
+    <div class="listHead">
+      <span id="countLine">0 个文件</span>
+      <div class="listActions">
+        <label class="presetPick">
+          预设
+          <select id="preset"><option value="">默认</option></select>
+        </label>
+        <button class="ghost" id="btnOutDir">输出目录…</button>
+        <button class="ghost danger" id="btnClear">清空</button>
+      </div>
+    </div>
+    <p class="outDir" id="outDirLine">输出到源文件所在目录</p>
+    <div id="list"></div>
+    <div class="runBar">
+      <button class="primary" id="btnRun">开始转换</button>
+    </div>
+  </section>
+</main>
+
+<!-- 环境面板 -->
+<div class="sheet hidden" id="envSheet">
+  <div class="sheetInner">
+    <div class="sheetHead">
+      <h2>环境</h2>
+      <button class="ghost" id="btnEnvClose">关闭</button>
+    </div>
+    <div id="envBody"></div>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
