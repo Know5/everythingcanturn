@@ -22,7 +22,7 @@ PLUGINS = [
     f"convcore.plugins.{m}"
     for m in (
         "image", "image_extra", "vector", "media",
-        "document", "document_pdf", "document_word",
+        "document", "document_pdf", "document_word", "document_build",
         "markup", "markup_read", "markup_write", "office", "office_soffice",
         "data_tree", "data_table", "archive", "font",
     )
@@ -35,6 +35,9 @@ HEAVY = (
     + collect_submodules("resvg_py")
     + collect_submodules("rawpy")
     + collect_submodules("rarfile")
+    # pyarrow 是动态 import（Parquet 读写），静态分析看不见。
+    # 打包环境装了它就该进包；没装时 collect_submodules 返回空，无害。
+    + collect_submodules("pyarrow")
 )
 
 def strip_bloat(collection):

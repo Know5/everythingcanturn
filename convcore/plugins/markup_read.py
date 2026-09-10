@@ -369,7 +369,19 @@ def parse_html(data: bytes | str, source_type: str | None = None) -> DocTree:
     from lxml import html as lhtml
 
     if isinstance(data, bytes):
-        doc = lhtml.fromstring(data) if data.strip() else lhtml.fromstring(b"<html/>")
+        # lxml 对无 meta charset 的字节流按 ISO-8859-1 猜（标准行为），
+        # 中文网页全是乱码。真实文件绝大多数是 UTF-8：先验合法性，
+        # 合法就显式解码再交给 lxml。
+        # 例外：带 <?xml encoding?> 声明的（EPUB 的 XHTML 章节）必须
+        # 保持 bytes——lxml 拒绝「str 带 encoding 声明」，声明本身已指明
+        # 编码，让 lxml 自己处理。
+        head = data[:200]
+        if b"encoding=" not in head:
+            try:
+                data = data.decode("utf-8")
+            except UnicodeDecodeError:
+                pass  # 不是 UTF-8，lxml 按 meta 声明或默认规则处理
+        doc = lhtml.fromstring(data) if data.strip() else lhtml.fromstring("<html/>")
     else:
         doc = lhtml.fromstring(data or "<html/>")
 
@@ -378,7 +390,18 @@ def parse_html(data: bytes | str, source_type: str | None = None) -> DocTree:
         title = t.text.strip()
 
     body = doc.find(".//body")
-    root = body if body is not None else doc
+    if body is not None:
+        root = body
+    else:
+        # 片段解析：lxml 把单个顶层块元素直接作为根返回（<h1>x</h1> → 根是 h1，
+        # 文本在 .text 而非子节点）。_html_blocks 只遍历子节点，会把这个根漏掉，
+        # 得到空文档被桥接层拒绝。包一层合成容器，让根元素的块级内容进入遍历。
+        from lxml import etree
+
+        wrapper = etree.Element("div")
+        if doc.tag:
+            wrapper.append(doc)
+        root = wrapper
 
     tree = DocTree(blocks=_html_blocks(root), title=title, source_type=source_type)
     if tree.title is None:

@@ -22,7 +22,8 @@ _TABLE: list[tuple[MediaType, Domain, tuple[str, ...], str]] = [
     ("image/vnd.microsoft.icon", "raster", (".ico",), "ICO"),
     ("image/avif", "raster", (".avif",), "AVIF"),
     ("image/heic", "raster", (".heic", ".heif"), "HEIC"),
-    ("image/jxl", "raster", (".jxl",), "JPEG XL"),
+    # JPEG XL 留在表外：无插件实现，列进来只会让 UI 显示不可达目标。
+    # 真要支持时走 Pillow（pillow-jxl-plugin）再加回。
     ("image/vnd.adobe.photoshop", "raster", (".psd",), "Photoshop"),
     ("image/x-portable-pixmap", "raster", (".ppm", ".pgm", ".pbm", ".pnm"), "Netpbm"),
     ("image/x-tga", "raster", (".tga",), "TGA"),
@@ -35,8 +36,9 @@ _TABLE: list[tuple[MediaType, Domain, tuple[str, ...], str]] = [
     ("image/x-fuji-raf", "raster", (".raf",), "Fuji RAW"),
     ("image/x-panasonic-rw2", "raster", (".rw2",), "Panasonic RAW"),
     # ── 图片：矢量 ──
+    # PostScript/EPS 留在表外：Ghostscript 是 AGPL，pymupdf 不读 PS。
+    # 需要时优先找宽松授权的 PS 解析库再进表。
     ("image/svg+xml", "vector", (".svg",), "SVG"),
-    ("application/postscript", "vector", (".eps", ".ps"), "PostScript"),
     # ── 视频容器 ──
     ("video/mp4", "media", (".mp4", ".m4v"), "MP4"),
     ("video/x-matroska", "media", (".mkv",), "Matroska"),
@@ -75,13 +77,14 @@ _TABLE: list[tuple[MediaType, Domain, tuple[str, ...], str]] = [
     ("application/vnd.oasis.opendocument.text", "document", (".odt",), "ODF Text"),
     ("application/vnd.oasis.opendocument.spreadsheet", "table", (".ods",), "ODF Sheet"),
     # 标记语言是独立领域：面向流式可重排，没有页的概念，
-    # 和 PDF 的页面模型不同，强行合并会得到半数字段为空的模型
     ("text/markdown", "markup", (".md", ".markdown"), "Markdown"),
     ("text/html", "markup", (".html", ".htm"), "HTML"),
-    ("application/rtf", "markup", (".rtf",), "RTF"),
+    # RTF 留在表外：无插件（striprtf 只读且丢格式），不值得为它
+    # 提供一个会悄悄丢所有样式的「转换」。
     ("text/plain", "markup", (".txt",), "纯文本"),
     ("application/epub+zip", "markup", (".epub",), "EPUB"),
-    ("application/x-mobipocket-ebook", "document", (".mobi", ".azw3"), "MOBI"),
+    # MOBI 同理：无 Python 库能写，读侧也只有半成品。真需要时
+    # 经 LibreOffice 转一次再进 markup 域。
     # ── 数据：树形与表格是两个域 ──
     # 树形数据是嵌套映射与列表；表格是扁平的带类型列。JSON 里没有「列类型」，
     # CSV 里没有嵌套。合并成一个域会让两边都别扭。
@@ -107,12 +110,9 @@ _TABLE: list[tuple[MediaType, Domain, tuple[str, ...], str]] = [
     ("font/otf", "font", (".otf",), "OpenType"),
     ("font/woff", "font", (".woff",), "WOFF"),
     ("font/woff2", "font", (".woff2",), "WOFF2"),
-    # ── 3D ──
-    ("model/stl", "mesh", (".stl",), "STL"),
-    ("model/obj", "mesh", (".obj",), "OBJ"),
-    ("model/gltf+json", "mesh", (".gltf",), "glTF"),
-    ("model/gltf-binary", "mesh", (".glb",), "glTF 二进制"),
-    ("model/ply", "mesh", (".ply",), "PLY"),
+    # ── 3D（mesh 域）整体留在表外：零实现。加回来时一个 trimesh
+    # 插件可覆盖 STL/OBJ/glTF/GLB/PLY 五种格式，UI 的 "3D" 标签
+    # （cli.py / desktop / webui 已有）届时直接生效。
 ]
 
 _BY_TYPE: dict[MediaType, tuple[Domain, tuple[str, ...], str]] = {
@@ -129,7 +129,6 @@ _ALIASES: dict[MediaType, MediaType] = {
     "image/jpg": "image/jpeg",
     "image/x-ms-bmp": "image/bmp",
     "image/x-icon": "image/vnd.microsoft.icon",
-    "image/jpeg-xl": "image/jxl",
     "audio/x-wav": "audio/wav",
     "audio/vnd.wave": "audio/wav",
     "audio/x-flac": "audio/flac",

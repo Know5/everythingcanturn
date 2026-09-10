@@ -226,7 +226,7 @@ select, .search {
 
 .rowCtl { display: flex; align-items: center; gap: 7px; }
 
-/* 目标格式按钮：点开分组选择器，而不是塞 52 项进下拉框 */
+/* 目标格式按钮：点开分组选择器，而不是塞全部项进下拉框 */
 .targetBtn {
   background: var(--raise);
   border: 1px solid var(--line);

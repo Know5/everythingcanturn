@@ -53,6 +53,7 @@ packaging==26.3
 rawpy==0.27.1            # 相机 RAW（CR2/NEF/ARW/DNG/RAF/RW2/CR3）
 resvg-py==0.5.0          # SVG 栅格化（官方 Python 绑定）
 rarfile==4.5             # RAR 结构解析（解压走 UnRAR 引擎）
+pyarrow==25.0.1          # Parquet 读写 + 跨域桥的类型推断
 
 # 测试工具补全（CI 用）
 coverage==7.16.0

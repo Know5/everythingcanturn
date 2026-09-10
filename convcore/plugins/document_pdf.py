@@ -90,6 +90,20 @@ class PdfStructure:
 
         self._apply_encryption(writer, options, pol)
 
+        # 元数据：桥产物（DocumentRef.title 来自 DocTree）与源 PDF 的
+        # 标题都应保留。搜索和文献管理工具靠这个字段识别文档。
+        meta = {"/Producer": "convcore"}
+        src_meta = reader.metadata or {}
+        for key in ("/Title", "/Author", "/Subject", "/Creator"):
+            val = src_meta.get(key)
+            if val:
+                meta[key] = val
+        if getattr(ir, "title", None):
+            meta["/Title"] = ir.title
+        if getattr(ir, "author", None):
+            meta["/Author"] = ir.author
+        writer.add_metadata(meta)
+
         dst = tmp / "out.pdf"
         with dst.open("wb") as fh:
             writer.write(fh)

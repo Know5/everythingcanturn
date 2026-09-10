@@ -119,6 +119,9 @@ class TableCodec:
         Capability(JSONL, LossTier.LOSSLESS, 1.0, _OPTS),
         # XLSX 是 STRUCTURAL：公式、单元格格式、图表、合并单元格都不进 IR
         Capability(XLSX, LossTier.STRUCTURAL, 3.0, _OPTS, fidelity=0.8),
+        # Parquet 读是 STRUCTURAL：精确类型（int64/float64/timestamp）压平
+        # 成 Python 标量，字典编码等存储细节不保留
+        Capability(PARQUET, LossTier.STRUCTURAL, 3.0, _OPTS, fidelity=0.85),
     )
 
     writes = (
@@ -126,6 +129,7 @@ class TableCodec:
         Capability(TSV, LossTier.LOSSLESS, 1.0, _OPTS),
         Capability(JSONL, LossTier.LOSSLESS, 1.0, _OPTS),
         Capability(XLSX, LossTier.LOSSLESS, 3.0, _OPTS),
+        Capability(PARQUET, LossTier.LOSSLESS, 3.0, _OPTS),
     )
 
     def available(self) -> tuple[bool, str]:
@@ -328,6 +332,21 @@ class TableCodec:
         if target == XLSX:
             return [self._write_xlsx(ir, options, pol)]
 
+        if target == PARQUET:
+            # 多表：Parquet 单文件无多表概念，跟 CSV/JSONL 一样一进多出，
+            # 每表一个文件。若在写前静默只取 primary，多表 XLSX 会丢数据。
+            if len(ir.sheets) > 1:
+                pol.note(
+                    "多工作表",
+                    Strategy.EMULATE,
+                    f"{len(ir.sheets)} 张表已分别输出为独立文件",
+                )
+                return [
+                    self._write_parquet(s, pol, name=s.name)
+                    for s in ir.sheets
+                ]
+            return [self._write_parquet(ir.primary, pol)]
+
         # 单表格式遇到多表：一进多出，每表一个文件。
         # 静默只写第一张是数据丢失。
         if len(ir.sheets) > 1:
@@ -378,6 +397,48 @@ class TableCodec:
         else:
             data = text.encode("utf-8")
         return Resource(media_type=target, data=data, name=name)
+
+    def _write_parquet(
+        self, sheet: Sheet, pol: Policy, name: str | None = None
+    ) -> Resource:
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+        except ImportError as exc:
+            raise ConversionError(
+                "写 Parquet 需要 pyarrow（约 29MB）：uv pip install pyarrow"
+            ) from exc
+
+        # 只接单张表：Parquet 单文件无多表概念，全部 sheet 合并会静默丢
+        # 边界，多表由 write() 一进多出分支处理。
+        columns = list(sheet.columns) or ["value"]
+        rows = sheet.rows or [[]]
+
+        # 类型推断：pyarrow 的隐式转换对 None 首行会落到 null 类型，
+        # 明确扫一遍按列取最大公共类型更稳
+        def col_values(ci: int):
+            return [r[ci] if ci < len(r) else None for r in rows]
+
+        arrays = []
+        for ci, col_name in enumerate(columns):
+            vals = col_values(ci)
+            try:
+                arr = pa.array(vals)
+            except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+                # 混合类型列：全部转字符串。Parquet 要求同列同型，
+                # 这比静默丢弃非数值行好
+                pol.note(
+                    "列类型",
+                    Strategy.APPROXIMATE,
+                    f"列 {col_name!r} 混合类型，已全部转为字符串",
+                )
+                arr = pa.array(["" if v is None else str(v) for v in vals])
+            arrays.append(arr)
+
+        table = pa.Table.from_arrays(arrays, names=columns)
+        buf = io.BytesIO()
+        pq.write_table(table, buf, compression="zstd")
+        return Resource(media_type=PARQUET, data=buf.getvalue(), name=name)
 
     def _write_xlsx(
         self, ir: Table, options: dict[str, Any], pol: Policy

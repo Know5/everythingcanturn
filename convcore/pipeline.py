@@ -302,7 +302,10 @@ class Converter:
                     current = edge.plugin.convert(current, edge.dst[1], plugin_opts)
 
                 else:  # BRIDGE
-                    ir = self._bridge(edge.src[1], edge.dst[1], ir, opts, pol)
+                    # 桥函数可能落盘（document_build 排 PDF、vector 渲染 SVG），
+                    # 必须拿到带 _tmp 的 plugin_opts；传裸 opts 会丢工作目录，
+                    # 产物写进 CWD。
+                    ir = self._bridge(edge.src[1], edge.dst[1], ir, plugin_opts, pol)
 
             except ConversionError:
                 raise
@@ -342,7 +345,7 @@ class Converter:
         opts: dict[str, Any],
         pol: policy_mod.Policy,
     ) -> Any:
-        """跨域桥接。Phase 1 只有 vector→raster 会走到，其余留给后续阶段。"""
+        """跨域桥接分发。每对域一个分支，实现在各自域的插件里。"""
         if (src_domain, dst_domain) == ("vector", "raster"):
             from .plugins.vector import rasterize
 
@@ -355,6 +358,14 @@ class Converter:
             from .plugins.markup import pdf_to_doctree
 
             return pdf_to_doctree(ir, opts, pol)
+        if (src_domain, dst_domain) == ("markup", "document"):
+            from .plugins.document_build import doctree_to_document
+
+            return doctree_to_document(ir, opts, pol)
+        if (src_domain, dst_domain) == ("raster", "document"):
+            from .plugins.document_build import raster_to_document
+
+            return raster_to_document(ir, opts, pol)
         if (src_domain, dst_domain) == ("table", "tree"):
             from .plugins.data_tree import table_to_tree
 
@@ -475,7 +486,8 @@ def convert_file(
 
 def _atomic_copy_resource(res: Resource, dest: Path, *, overwrite: bool) -> None:
     """流式写出资源并原子替换目标，避免留下半截文件。"""
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    # 耐久性说明：写完只 flush 到 OS 缓存不做 fsync（见下方），掉电最多
+    # 丢这个文件，不会出现半截内容——os.replace 在同一个卷上是原子的。
     fd, raw_part = tempfile.mkstemp(
         prefix=f".{dest.name}.", suffix=".part", dir=dest.parent
     )
@@ -493,7 +505,11 @@ def _atomic_copy_resource(res: Resource, dest: Path, *, overwrite: bool) -> None
             with part.open("wb") as dst:
                 shutil.copyfileobj(src, dst, length=1024 * 1024)
                 dst.flush()
-                os.fsync(dst.fileno())
+                # 不做 fsync：本地转换工具崩溃的后果是重转一次，不是数据
+                # 损坏；原子性已由 os.replace 保证（绝不会留下半截目标文件）。
+                # 而 fsync 在 Windows 上是 ~2-3ms/次的固定同步等待，
+                # 批量转换 100 张就白付 300ms。需要持久性保证的调用方
+                # （如数据库导入）自行 fsync 产物目录。
         finally:
             if close_src:
                 src.close()

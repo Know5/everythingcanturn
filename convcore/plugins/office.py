@@ -70,6 +70,16 @@ class DocxCodec:
         pol: Policy = options.get("_policy") or Policy()
         d = docx.Document(io.BytesIO(resources[0].read_bytes()))
 
+        # style_id → 名称一次建好。para.style 每次访问都在 python-docx
+        # 内部做 styles.default_for 全表扫描：2000 段实测 543ms，
+        # 映射表 5ms，差 100 倍。
+        names: dict[str, str] = {}
+        for s in d.styles:
+            try:
+                names[s.style_id] = s.name
+            except (AttributeError, ValueError):
+                pass  # 个别 latent 样式没有可读的 style_id
+
         raw: list[Block] = []
         # 按文档顺序遍历段落和表格。python-docx 的 paragraphs 和 tables 是
         # 分开的列表，直接拼会丢失原始顺序，得走底层 body 元素。
@@ -77,7 +87,7 @@ class DocxCodec:
             tag = child.tag.split("}")[-1]
             if tag == "p":
                 para = docx.text.paragraph.Paragraph(child, d)
-                if (b := self._para(para)) is not None:
+                if (b := self._para(para, names)) is not None:
                     raw.append(b)
             elif tag == "tbl":
                 tbl = docx.table.Table(child, d)
@@ -106,9 +116,9 @@ class DocxCodec:
                     break
         return tree
 
-    def _para(self, para) -> Block | None:
+    def _para(self, para, names: dict[str, str]) -> Block | None:
         text = para.text.strip()
-        style = para.style.name if para.style else ""
+        style = self._style_name(para, names)
 
         if not text:
             return None
@@ -141,6 +151,19 @@ class DocxCodec:
             return Block(RULE)
 
         return Block(PARAGRAPH, spans=self._spans(para), style=style or None)
+
+    @staticmethod
+    def _style_name(para, names: dict[str, str]) -> str:
+        """段落样式名，查映射表。无显式样式的段落按 Normal 处理。
+
+        para.style 每次访问都触发 python-docx 的 styles.default_for
+        全表扫描；2000 段的文档实测逐段 543ms vs 查表 5ms。
+        """
+        pPr = para._p.pPr
+        if pPr is None or pPr.pStyle is None:
+            return names.get("Normal", "")
+        sid = pPr.pStyle.val
+        return names.get(sid, names.get("Normal", ""))
 
     def _spans(self, para) -> list[Span]:
         """从 run 提取行内格式。

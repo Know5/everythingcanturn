@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from convcore.registry import reset_registry
@@ -94,7 +96,6 @@ def test_convert_command_construction(tmp_path, clean_registry, monkeypatch):
     monkeypatch.setattr(probe_mod, "require", lambda key: fake_exe)
 
     codec = SofficeDocCodec()
-    codec._tmp = tmp_path
     src = tmp_path / "input.doc"
     src.write_bytes(b"x")
 
@@ -103,24 +104,27 @@ def test_convert_command_construction(tmp_path, clean_registry, monkeypatch):
     def fake_run(args, timeout=None):
         captured["args"] = args
         captured["timeout"] = timeout
-        out_dir = tmp_path / "out-docx"
-        out_dir.mkdir(exist_ok=True)
+        out_dir = Path(args[args.index("--outdir") + 1])
+        out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "input.docx").write_bytes(b"fake-docx")
         from convcore.engines.base import RunResult
 
         return RunResult(returncode=0, stdout=b"", stderr=b"")
 
     monkeypatch.setattr(mod, "run", fake_run)
-    out = codec._convert(src, "docx", {})
+    out = codec._convert(tmp_path, src, "docx")
 
     args = captured["args"]
     assert str(fake_exe) == args[0]
     assert "--headless" in args
     assert args[args.index("--convert-to") + 1] == "docx"
-    assert args[args.index("--outdir") + 1] == str(tmp_path / "out-docx")
+    # outdir 在 _convert 内部基于传入的 tmp 构造，不再依赖实例状态
+    out_dir_arg = Path(args[args.index("--outdir") + 1])
+    assert out_dir_arg.parent == tmp_path
+    assert out_dir_arg.name == "out-docx"
     assert args[-1] == str(src)
     assert captured["timeout"] == 600.0
-    assert out == tmp_path / "out-docx" / "input.docx"
+    assert out == out_dir_arg / "input.docx"
 
 
 

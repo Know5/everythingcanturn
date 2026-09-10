@@ -1,6 +1,6 @@
 # everythingcanturn
 
-**任意相关文件格式互转** — 一个本地运行、52 种格式互通的转换工具。
+**任意相关文件格式互转** — 一个本地运行、63 种可读 / 51 种可写格式的转换引擎。
 
 ## 原理速读
 
@@ -138,8 +138,9 @@ convcore/
 │   ├── docx.py       # DOCX ↔ IR
 │   ├── markup.py     # MD/HTML/TXT ↔ IR
 │   ├── epub.py       # EPUB ↔ IR
+│   ├── document_build.py  # 桥：DocTree → PDF、Raster → PDF（跨域排页）
 │   ├── data_tree.py  # JSON/YAML/TOML/XML
-│   ├── data_table.py # CSV/TSV/XLSX/NDJSON
+│   ├── data_table.py # CSV/TSV/XLSX/NDJSON/Parquet
 │   ├── archive.py    # ZIP/7z/TAR/RAR/GZ/BZ2/XZ
 │   └── fonttools.py  # TTF/OTF/WOFF/WOFF2
 ├── cli.py            # 命令行入口

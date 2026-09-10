@@ -189,7 +189,7 @@ class Api:
         readable, writable = reg.readable(), reg.writable()
 
         # 每个域里可读/可写的 MIME 各自去哪：直接报目标域，不展开逐对矩阵
-        # （52×52 的格子没人能读）。域间的可达性由 BRIDGES 决定。
+        # （可读+可写各域的格子没人能读）。域间的可达性由 BRIDGES 决定。
         from ..graph import BRIDGES
 
         # 哪些域活着（有插件且至少一边是活的）
@@ -277,7 +277,7 @@ class Api:
         except Exception as exc:
             return {"error": f"分析可用目标失败：{exc}"}
 
-        # 按域分组，组内按保真度排序。52 种格式平铺成一个下拉框没法用。
+        # 按域分组，组内按保真度排序。全部格式平铺成一个下拉框没法用。
         groups: dict[str, list[dict[str, Any]]] = {}
         order = list(_TIER.values())
         for mt, cpath in targets.items():

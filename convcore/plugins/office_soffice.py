@@ -72,17 +72,29 @@ class _SofficeCodecBase:
     DOCX 保留的样式信息（标题层级、列表、表格）能被 DocxCodec 精确解析。
     """
 
-    _tmp: Path
+    def _scratch(self, options: dict[str, Any]) -> Path:
+        """本次调用专属的暂存目录。
 
-    def _convert(self, src: Path, target_ext: str, options: dict[str, Any]) -> Path:
+        线程安全关键：不能用 self._tmp 实例属性——@register 插件是全局
+        单例，JobQueue 4 worker 并发时线程 B 的 _ensure_tmp 会覆写线程
+        A 的路径，A 的 finally rmtree 就把 B 正在用的目录拆了。
+        改为每调用一个 uuid 子目录，生命周期就在这一个函数帧里。
+        """
+        import uuid
+
+        tmp = Path(options.get("_tmp") or ".") / f"soffice-{uuid.uuid4().hex[:12]}"
+        tmp.mkdir(parents=True, exist_ok=True)
+        return tmp
+
+    def _convert(self, tmp: Path, src: Path, target_ext: str) -> Path:
         from ..engines.probe import require
 
         exe = require("soffice")
-        out_dir = self._tmp / f"out-{target_ext}"
+        out_dir = tmp / f"out-{target_ext}"
         out_dir.mkdir(parents=True, exist_ok=True)
 
         # 独立用户配置目录：绕开单实例锁，允许并发调用（见模块注释）
-        profile = self._tmp / "lo-profile"
+        profile = tmp / "lo-profile"
         args = [
             str(exe),
             "-env:UserInstallation=file:///" + str(profile).replace("\\", "/"),
@@ -105,8 +117,9 @@ class _SofficeCodecBase:
             )
         return produced
 
-    def _stage_source(self, data: bytes, ext: str) -> Path:
-        src = self._tmp / f"input.{ext}"
+    @staticmethod
+    def _stage_source(tmp: Path, data: bytes, ext: str) -> Path:
+        src = tmp / f"input.{ext}"
         src.write_bytes(data)
         return src
 
@@ -141,15 +154,11 @@ class SofficeDocCodec(_SofficeCodecBase):
             "https://www.libreoffice.org/download/"
         )
 
-    def _ensure_tmp(self, options: dict[str, Any]) -> None:
-        self._tmp = Path(options.get("_tmp") or ".") / "soffice"
-        self._tmp.mkdir(parents=True, exist_ok=True)
-
     def parse(self, resources: list[Resource], options: dict[str, Any]) -> Any:
         from ..ir.markup import DocTree
 
         pol: Policy = options.get("_policy") or Policy()
-        self._ensure_tmp(options)
+        tmp = self._scratch(options)
         mt = resources[0].media_type
         ext = _ext_of(mt)
 
@@ -160,9 +169,9 @@ class SofficeDocCodec(_SofficeCodecBase):
             "切换动画、嵌入对象）不保留",
         )
 
-        src = self._stage_source(resources[0].read_bytes(), ext)
+        src = self._stage_source(tmp, resources[0].read_bytes(), ext)
         try:
-            docx_path = self._convert(src, "docx", options)
+            docx_path = self._convert(tmp, src, "docx")
             # 直接复用 DocxCodec 的解析——样式映射逻辑不重复实现
             from .office import DocxCodec
 
@@ -172,21 +181,20 @@ class SofficeDocCodec(_SofficeCodecBase):
             tree.source_type = mt
             return tree
         finally:
-            shutil.rmtree(self._tmp, ignore_errors=True)
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def write(self, ir: Any, target: MediaType, options: dict[str, Any]) -> list[Resource]:
-        from .markup_write import write_html  # noqa: F401  确保写链可用
         from .office import DocxCodec
 
         pol: Policy = options.get("_policy") or Policy()
-        self._ensure_tmp(options)
+        tmp = self._scratch(options)
 
         # DocTree → 先写 DOCX（原生、保真最高）→ soffice 转目标格式
         docx_codec = DocxCodec()
         docx_res = docx_codec.write(ir, DOCX, options)
-        src = self._stage_source(docx_res[0].read_bytes(), "docx")
+        src = self._stage_source(tmp, docx_res[0].read_bytes(), "docx")
         try:
-            out = self._convert(src, _ext_of(target), options)
+            out = self._convert(tmp, src, _ext_of(target))
             dst_name = f"{ir.title or 'document'}.{_ext_of(target)}"
             data = out.read_bytes()
             if ir.blocks and target == PPT:
@@ -197,7 +205,7 @@ class SofficeDocCodec(_SofficeCodecBase):
                 )
             return [Resource(media_type=target, data=data, name=dst_name)]
         finally:
-            shutil.rmtree(self._tmp, ignore_errors=True)
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 @register
@@ -218,15 +226,11 @@ class SofficeSheetCodec(_SofficeCodecBase):
     def available(self) -> tuple[bool, str]:
         return SofficeDocCodec().available()
 
-    def _ensure_tmp(self, options: dict[str, Any]) -> None:
-        self._tmp = Path(options.get("_tmp") or ".") / "soffice"
-        self._tmp.mkdir(parents=True, exist_ok=True)
-
     def parse(self, resources: list[Resource], options: dict[str, Any]) -> Any:
         from ..ir.data import Table
 
         pol: Policy = options.get("_policy") or Policy()
-        self._ensure_tmp(options)
+        tmp = self._scratch(options)
         mt = resources[0].media_type
 
         pol.note(
@@ -235,26 +239,33 @@ class SofficeSheetCodec(_SofficeCodecBase):
             "老格式经 LibreOffice 转成 XLSX 再解析，宏与图表不保留",
         )
 
-        src = self._stage_source(resources[0].read_bytes(), _ext_of(mt))
+        src = self._stage_source(tmp, resources[0].read_bytes(), _ext_of(mt))
         try:
-            xlsx_path = self._convert(src, "xlsx", options)
+            xlsx_path = self._convert(tmp, src, "xlsx")
             from .data_table import TableCodec
 
-            res = Resource(media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", path=xlsx_path)
+            res = Resource(
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                path=xlsx_path,
+            )
             table: Table = TableCodec().parse([res], options)
             return table
         finally:
-            shutil.rmtree(self._tmp, ignore_errors=True)
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def write(self, ir: Any, target: MediaType, options: dict[str, Any]) -> list[Resource]:
         from .data_table import TableCodec
 
-        self._ensure_tmp(options)
+        tmp = self._scratch(options)
         xlsx_codec = TableCodec()
-        xlsx_res = xlsx_codec.write(ir, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", options)
-        src = self._stage_source(xlsx_res[0].read_bytes(), "xlsx")
+        xlsx_res = xlsx_codec.write(
+            ir,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            options,
+        )
+        src = self._stage_source(tmp, xlsx_res[0].read_bytes(), "xlsx")
         try:
-            out = self._convert(src, _ext_of(target), options)
+            out = self._convert(tmp, src, _ext_of(target))
             return [Resource(media_type=target, data=out.read_bytes())]
         finally:
-            shutil.rmtree(self._tmp, ignore_errors=True)
+            shutil.rmtree(tmp, ignore_errors=True)
