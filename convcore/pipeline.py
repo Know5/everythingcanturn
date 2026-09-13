@@ -237,7 +237,11 @@ class Converter:
     def _detach(
         self, res: Resource, tmp: Path, persist_dir: Path | None = None
     ) -> Resource:
-        """让工作目录中的产物在工作目录销毁后仍可用。"""
+        """让工作目录中的产物在工作目录销毁后仍可用。
+
+        当 persist_dir 未提供时会把产物读进内存。大产物（>1GB 非 media 域）
+        会在 read_bytes() 内部被拦截，这是预期行为——调用方应该提供 persist_dir。
+        """
         if res.path is not None and tmp in res.path.parents:
             if persist_dir is not None:
                 fd, raw_target = tempfile.mkstemp(
@@ -247,6 +251,7 @@ class Converter:
                 target = Path(raw_target)
                 shutil.copyfile(res.path, target)
                 return Resource(media_type=res.media_type, path=target, name=res.name)
+            # 无 persist_dir：读进内存。大文件会在 read_bytes() 里报错。
             return Resource(
                 media_type=res.media_type,
                 data=res.path.read_bytes(),
@@ -378,6 +383,10 @@ class Converter:
             from .plugins.data_table import table_to_doctree
 
             return table_to_doctree(ir, opts, pol)
+        if (src_domain, dst_domain) == ("tree", "markup"):
+            from .plugins.markup_tree import tree_to_markup
+
+            return tree_to_markup(ir, opts, pol)
         raise ConversionError(
             f"跨域桥接 {src_domain} ⇒ {dst_domain} 尚未实现"
         )
@@ -417,8 +426,8 @@ def convert_file(
         raise ConversionError(f"未知目标格式：{target}")
 
     src_mt = conv.detect(source)
-    # 文档/数据/图片插件会把内容物化到内存；音视频走 FFmpeg 文件流，
-    # 不应被同一条 1GiB 预检误伤。
+    # 大文件内存保护已下移到 Resource.read_bytes()，对所有调用路径生效。
+    # 这里保留快速失败：文件级入口在构造 Resource 前就拦截，错误信息更友好。
     from .formats import domain_of
 
     if domain_of(src_mt) != "media":
@@ -426,8 +435,8 @@ def convert_file(
         size = source.stat().st_size
         if size > max_input:
             raise ConversionError(
-                f"文件过大：{source.name}（{size / (1 << 30):.1f}GB），"
-                "文档和数据类输入上限 1GB"
+                f"文件过大：{source.name}（{size / (1 << 30):.1f} GB），"
+                "文档和数据类输入上限 1 GB"
             )
     opts = policy_mod.resolve_options(target_mt, preset, overrides)
 

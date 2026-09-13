@@ -139,6 +139,9 @@ BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
     ("tree", "table", LossTier.STRUCTURAL, 2.0, 0.7),
     # 表格 → 标记语言：渲染成 Markdown/HTML 表格
     ("table", "markup", LossTier.LOSSLESS, 2.0, 1.0),
+    # 树形 → 标记语言：JSON/YAML 渲染成可读文档（对象数组变表格，嵌套变列表）。
+    # 结构被映射为文档元素（表格/列表），无信息丢失，标 LOSSLESS。
+    ("tree", "markup", LossTier.LOSSLESS, 2.0, 1.0),
     # 标记语言 → PDF：DocTree 排版成页。排页是新增信息（分页点不存在
     # 于流式文档），样式映射有损，标 STRUCTURAL 而不是 LOSSLESS。
     ("markup", "document", LossTier.STRUCTURAL, 3.0, 0.9),

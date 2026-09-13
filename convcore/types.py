@@ -88,10 +88,30 @@ class Resource:
         return self.path.stat().st_size
 
     def read_bytes(self) -> bytes:
-        """拿到字节内容，不管它原本在内存还是磁盘。"""
+        """拿到字节内容，不管它原本在内存还是磁盘。
+
+        对于磁盘文件会检查大小：超过 1GB 的文档/数据/图片会抛出异常，
+        避免内存耗尽。音视频（media 域）不受此限，因为它们走 FFmpeg 文件流。
+        """
         if self.data is not None:
             return self.data
         assert self.path is not None
+
+        # 大文件内存保护：在所有调用路径上设防
+        size = self.path.stat().st_size
+        max_bytes = 1 << 30  # 1 GiB
+
+        if size > max_bytes:
+            from .formats import domain_of
+            domain = domain_of(self.media_type)
+            # 音视频走 FFmpeg 文件流，不物化到 Python 内存
+            if domain != "media":
+                from . import ConversionError
+                raise ConversionError(
+                    f"文件过大：{self.path.name}（{size / (1 << 30):.2f} GB），"
+                    f"内存加载上限 1 GB。音视频不受此限。"
+                )
+
         return self.path.read_bytes()
 
     def materialize(self, tmpdir: Path) -> Path:

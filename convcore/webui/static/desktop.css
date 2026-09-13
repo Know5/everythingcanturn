@@ -378,6 +378,7 @@ select, .search {
 .opt:hover { border-color: var(--accent); background: var(--raise); }
 .opt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); }
 .opt .ext { color: var(--faint); font-size: 11px; }
+.opt .optTier { color: var(--faint); font-size: 11px; margin-left: auto; }
 .opt .dot { width: 6px; height: 6px; border-radius: 50%; }
 .opt .dot.copy { background: var(--copy); }
 .opt .dot.lossless { background: var(--lossless); }

@@ -16,6 +16,7 @@ tests/golden/*.actual.*
 
 # 临时/调试产物
 *.whl
+*.pdf
 convcore_real*.png
 convcore_window.png
 final_*.png

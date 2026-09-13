@@ -286,6 +286,7 @@ function renderPicker(f, query) {
                 <span class="dot ${i.tier}"></span>
                 <span>${esc(i.label)}</span>
                 <span class="ext">${i.ext ? "." + esc(i.ext) : ""}</span>
+                <span class="optTier">${TIER_ICON[i.tier]}</span>
               </button>`
             )
             .join("")}
