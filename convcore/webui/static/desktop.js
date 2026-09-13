@@ -100,7 +100,12 @@ async function addPaths(paths) {
       continue;
     }
     if (!info.groups.length) {
-      errs.push(`${info.name}：没有可用的转换目标`);
+      // 门控格式有专门的指引（如 Word 97 缺 LibreOffice）；否则才是真的没目标。
+      if (info.gatedHint) {
+        errs.push(`${info.name}：${info.gatedHint}`);
+      } else {
+        errs.push(`${info.name}：没有可用的转换目标`);
+      }
       continue;
     }
     info.chosen = info.default;

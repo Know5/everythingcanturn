@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .._paths import resource
-from ..formats import domain_of, label_of, primary_extension, resolve_target
+from ..formats import domain_of, gated_types, label_of, primary_extension, resolve_target
 from ..pipeline import Converter, convert_file
 from ..policy import PRESETS
 from ..types import ConversionError, LossTier
@@ -308,6 +308,17 @@ class Api:
             key=lambda g: (g["key"] != src_domain, -len(g["items"])),
         )
 
+        # 门控格式：源本身读不了/写不了（如 Word 97 无 soffice）。此时 targets
+        # 是空的，但要给可执行的指引而不是干巴巴的「没有可用目标」——缺的不是
+        # 转换路径，是一个可选的引擎。
+        gated = gated_types(self._conv.registry.readable(), self._conv.registry.writable())
+        gated_hint = None
+        if src_mt in gated:
+            gated_hint = (
+                f"{label_of(src_mt)} 的读写依赖 LibreOffice，当前环境未装。"
+                "装上后即可转换；未装时该格式不可用。"
+            )
+
         return {
             "path": str(path),
             "name": path.name,
@@ -318,6 +329,7 @@ class Api:
             "domainLabel": DOMAIN_LABEL.get(src_domain, src_domain),
             "detail": self._detail(path, src_mt),
             "groups": group_list,
+            "gatedHint": gated_hint,
             "default": self._default_target(src_mt, group_list),
         }
 

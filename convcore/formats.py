@@ -186,3 +186,15 @@ def resolve_target(spec: str) -> MediaType | None:
 
 def known_types() -> list[MediaType]:
     return [mt for mt, _, _, _ in _TABLE]
+
+
+def gated_types(readable: set[MediaType], writable: set[MediaType]) -> list[MediaType]:
+    """表格里有声明、但当前环境既读不了也写不了的格式。
+
+    这类格式不是「死了」：它们的读/写插件因缺少可选外部引擎（如 LibreOffice）
+    在 available() 里被拦下。装上引擎后自动恢复，未装时形同不存在。
+    CLI 的 formats 和 GUI 的帮助面板用这个把「需装引擎」和「不支持」区分开，
+    避免给用户「这格式转不了」的错误印象。
+    """
+    live = readable | writable
+    return [mt for mt in known_types() if mt not in live]

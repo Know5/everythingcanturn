@@ -165,20 +165,29 @@ def cmd_formats(args: argparse.Namespace) -> int:
 
     [读写] 双向 · [读 ] 只读 · [ 写] 只写。
     """
-    from .formats import _TABLE, domain_of
+    from .formats import _TABLE, domain_of, gated_types
     from .graph import BRIDGES
     from .pipeline import Converter
 
     conv = Converter()
     readable, writable = conv.registry.readable(), conv.registry.writable()
+    gated = set(gated_types(readable, writable))
 
-    by_domain: dict[str, list[tuple[str, str, str]]] = {}
+    by_domain: dict[str, list[tuple[str, str, str, bool]]] = {}
     for mt, domain, exts, label in _TABLE:
-        r = "读" if mt in readable else " "
-        w = "写" if mt in writable else " "
-        if args.available and not (mt in readable or mt in writable):
-            continue
-        by_domain.setdefault(domain, []).append((f"{r}{w}", label, exts[0]))
+        r = mt in readable
+        w = mt in writable
+        live = r or w
+        if not live:
+            gated.add(mt)
+            if args.available:
+                continue
+            # 门控格式标 [需LibreOffice] 而不是裸的 [  ]——后者读作「死了」，
+            # 但实际上装上引擎就能用，是完全不同的信息。
+            flags = "需LibreOffice"
+        else:
+            flags = f"{'读' if r else ' '}{'写' if w else ' '}"
+        by_domain.setdefault(domain, []).append((flags, label, exts[0], live))
 
     # 域间可达：BRIDGES 里两端域都活着才算数。回答「什么能转什么」的域级答案。
     live = set()
@@ -192,14 +201,21 @@ def cmd_formats(args: argparse.Namespace) -> int:
 
     for domain in sorted(by_domain):
         items = by_domain[domain]
-        live_n = sum(1 for f, _, _ in items if f.strip())
+        live_n = sum(1 for _, _, _, live in items if live)
         to = sorted(reach.get(domain, set()) - {domain})
         head = f"\n{domain}  （{live_n}/{len(items)} 已支持）"
         if to:
             head += f"  → 可转去：{'、'.join(to)}"
         print(head)
-        for flags, label, ext in items:
+        for flags, label, ext, live in items:
             print(f"  [{flags}] {label:<14} {ext}")
+
+    if gated:
+        print("\n需装外部引擎才能用的格式（当前环境不可转换）：")
+        print("  这些格式在格式表里，但读/写都依赖可选的 LibreOffice。"
+              "装上引擎后自动变为可用，未装时形同不存在。")
+        for mt in sorted(gated):
+            print(f"  · {label_of(mt)}（{mt[:48]}）")
 
     if conv.registry.unavailable:
         print("\n未启用的插件（装了依赖即可用）：")
