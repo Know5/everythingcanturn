@@ -35,13 +35,18 @@ def raster_to_video(
         raise ConversionError("raster→media 桥：输入为空")
 
     # 从选项获取帧率，默认 25fps
-    fps = opts.get("fps", 25)
-
-    # 动图有自己的帧延时，可以计算平均帧率
-    if ir.is_animated:
-        total_ms = sum(f.duration_ms for f in ir.frames)
-        if total_ms > 0:
-            fps = len(ir.frames) * 1000 / total_ms
+    # 用户显式指定 fps 时优先使用，即使动图有自己的帧延时
+    fps = opts.get("fps")
+    if fps is None:
+        # 未指定时：动图用自身帧延时，静态序列用默认 25fps
+        if ir.is_animated:
+            total_ms = sum(f.duration_ms for f in ir.frames)
+            if total_ms > 0:
+                fps = len(ir.frames) * 1000 / total_ms
+            else:
+                fps = 25
+        else:
+            fps = 25
 
     # 获取临时目录（由 pipeline._run 传入）
     tmp = Path(opts.get("_tmp") or ".")

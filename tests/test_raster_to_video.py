@@ -116,6 +116,7 @@ def test_custom_framerate_applied(sample_frames: list[Path], tmp_path: Path):
 
     conv = Converter()
 
+    # 先转慢的，立即分析，避免被后续转换覆盖
     res_slow = conv.convert(
         ConvertRequest(
             inputs=[
@@ -128,6 +129,12 @@ def test_custom_framerate_applied(sample_frames: list[Path], tmp_path: Path):
         persist_dir=tmp_path,
     )
 
+    plan_slow = ffmpeg.analyze(
+        Resource(media_type=MediaType("video/mp4"), path=res_slow.outputs[0].path),
+        tmp_path,
+    )
+
+    # 再转快的
     res_fast = conv.convert(
         ConvertRequest(
             inputs=[
@@ -140,10 +147,6 @@ def test_custom_framerate_applied(sample_frames: list[Path], tmp_path: Path):
         persist_dir=tmp_path,
     )
 
-    plan_slow = ffmpeg.analyze(
-        Resource(media_type=MediaType("video/mp4"), path=res_slow.outputs[0].path),
-        tmp_path,
-    )
     plan_fast = ffmpeg.analyze(
         Resource(media_type=MediaType("video/mp4"), path=res_fast.outputs[0].path),
         tmp_path,
