@@ -124,6 +124,11 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
 
 def _progress_printer():
+    """创建进度条打印回调函数。
+
+    Returns:
+        ProgressFn: 进度回调函数
+    """
     def fn(frac: float, step: str) -> None:
         bar = "█" * int(frac * 20) + "░" * (20 - int(frac * 20))
         print(f"\r  {bar} {frac * 100:3.0f}% {step[:40]:<40}", end="", flush=True)

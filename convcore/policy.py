@@ -19,6 +19,7 @@ from .types import MediaType
 
 
 class Strategy(Enum):
+    """降级策略：目标格式表达不了的特性如何处理。"""
     DROP = "drop"
     APPROXIMATE = "approximate"
     EMULATE = "emulate"
@@ -28,7 +29,13 @@ class Strategy(Enum):
 
 @dataclass(slots=True)
 class Degradation:
-    """一次降级的记录。"""
+    """一次降级的记录。
+
+    Attributes:
+        feature: 被降级的特性名称（如"透明通道"、"位深"）
+        strategy: 采用的降级策略
+        detail: 降级的具体说明
+    """
 
     feature: str
     strategy: Strategy
@@ -66,6 +73,13 @@ class Policy:
     warnings: list[Degradation] = field(default_factory=list)
 
     def note(self, feature: str, strategy: Strategy, detail: str) -> None:
+        """记录一次降级。
+
+        Args:
+            feature: 被降级的特性名称
+            strategy: 采用的降级策略
+            detail: 降级的具体说明
+        """
         self.warnings.append(Degradation(feature, strategy, detail))
 
 

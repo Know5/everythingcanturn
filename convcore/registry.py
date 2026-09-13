@@ -12,6 +12,14 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "Codec",
+    "DirectConverter",
+    "Registry",
+    "register",
+    "default_registry",
+]
+
 from typing import Any, Protocol, runtime_checkable
 
 from .formats import domain_of, normalize
@@ -137,6 +145,12 @@ def register(cls):
     """插件类装饰器。在类定义处直接注册一个实例。
 
     用装饰器而不是配置文件：插件的能力声明和实现放在一起，加格式时只碰一个文件。
+
+    Args:
+        cls: 插件类（Codec 或 DirectConverter）
+
+    Returns:
+        cls: 原类（装饰器透传）
     """
     _REGISTRY.add(cls())
     return cls

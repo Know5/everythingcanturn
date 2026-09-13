@@ -42,7 +42,14 @@ ProgressFn = Callable[[float, str], None]
 
 @contextmanager
 def _workspace(keep_on_error: bool = False):
-    """临时工作目录。失败时可保留现场供诊断。"""
+    """临时工作目录。失败时可保留现场供诊断。
+
+    Args:
+        keep_on_error: 失败时是否保留临时目录
+
+    Yields:
+        Path: 临时目录路径
+    """
     tmp = Path(tempfile.mkdtemp(prefix="convcore-"))
     failed = False
     try:
@@ -448,7 +455,23 @@ def convert_file(
     converter: Converter | None = None,
     stem: str | None = None,
 ) -> ConvertResult:
-    """便捷入口：转换单个文件并落盘。CLI 和测试都走这里。"""
+    """便捷入口：转换单个文件并落盘。CLI 和测试都走这里。
+
+    Args:
+        source: 源文件路径
+        target: 目标格式（MIME 类型或扩展名）
+        out_dir: 输出目录（与 out_path 二选一）
+        out_path: 精确输出路径（与 out_dir 二选一）
+        preset: 预设名称（如 "web", "print"）
+        overrides: 覆盖预设的选项
+        overwrite: 是否覆盖已存在的文件
+        progress: 进度回调函数
+        converter: 使用的转换器实例
+        stem: 输出文件名主干
+
+    Returns:
+        ConvertResult: 转换结果，包含输出文件列表和元数据
+    """
     from .formats import resolve_target
 
     conv = converter or Converter()

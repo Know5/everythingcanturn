@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 class EdgeKind(Enum):
+    """图中的边类型。"""
     READ = "read"
     WRITE = "write"
     DIRECT = "direct"
@@ -49,10 +50,12 @@ Node = tuple[str, str]
 
 
 def Fmt(media_type: MediaType) -> Node:
+    """构建格式节点。"""
     return ("fmt", normalize(media_type))
 
 
 def Hub(domain: Domain) -> Node:
+    """构建领域枢纽节点。"""
     return ("hub", domain)
 
 

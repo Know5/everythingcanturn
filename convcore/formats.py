@@ -8,6 +8,18 @@ AVIF/HEIC/JXL 等新格式、也没有我们要的领域归属信息。自己维
 
 from __future__ import annotations
 
+__all__ = [
+    "known_types",
+    "gated_types",
+    "normalize",
+    "label_of",
+    "domain_of",
+    "extensions",
+    "primary_extension",
+    "from_extension",
+    "sniff",
+]
+
 from .types import Domain, MediaType
 
 # (MIME, 领域, 扩展名..., 显示名)
@@ -149,16 +161,19 @@ def normalize(media_type: MediaType) -> MediaType:
 
 
 def domain_of(media_type: MediaType) -> Domain | None:
+    """获取 MIME 类型对应的领域。"""
     entry = _BY_TYPE.get(normalize(media_type))
     return entry[0] if entry else None
 
 
 def extensions(media_type: MediaType) -> tuple[str, ...]:
+    """获取 MIME 类型对应的扩展名列表。"""
     entry = _BY_TYPE.get(normalize(media_type))
     return entry[1] if entry else ()
 
 
 def primary_extension(media_type: MediaType) -> str | None:
+    """获取 MIME 类型的首选扩展名。"""
     exts = extensions(media_type)
     return exts[0] if exts else None
 

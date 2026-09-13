@@ -8,6 +8,21 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "MediaType",
+    "Domain",
+    "LossTier",
+    "Resource",
+    "Capability",
+    "Codec",
+    "DirectConverter",
+    "ConvertRequest",
+    "ConvertResult",
+    "ConversionError",
+    "Cancelled",
+    "NoPathError",
+]
+
 from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from pathlib import Path
