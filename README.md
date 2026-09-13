@@ -221,12 +221,27 @@ dist/convcore/convcore.exe  # 启动 GUI
 - PyMuPDF: 18MB
 - 其他依赖 + 静态资源: 91MB
 
+## 跨域桥接
+
+系统支持多种跨域转换，在不同格式域之间建立桥梁：
+
+| 转换方向 | 实现方式 | 损失档位 | 说明 |
+|---------|---------|---------|------|
+| **raster → vector** | potrace | INFERRED | 位图描摹为矢量 SVG |
+| **media → raster** | ffmpeg | LOSSLESS | 视频截取首帧 |
+| **raster → media** | ffmpeg | LOSSLESS | 图片序列转视频 |
+| **table → document** | reportlab | LOSSY | 表格数据渲染为 PDF |
+| **document → table** | camelot | INFERRED | PDF 表格提取 |
+| **vector → markup** | 内嵌 | LOSSLESS | SVG 嵌入 HTML |
+
+跨域桥会自动在路径规划时被考虑，使得原本不可达的转换成为可能。
+
 ## 限制
 
 1. **不可逆转换不承诺往返**：位图→矢量、PDF→DOCX 这类会标 `INFERRED`，转回去得不到原文件。
-2. **外部引擎失败不会回退**：FFmpeg 崩了就报错，不会尝试别的编解码器。
-3. **大文件内存占用**：文档域需要完整 AST，2GB 的 DOCX 会吃掉 4-6GB 内存。音视频是流式的，不受影响。
-4. **线程安全**：`Converter` 实例不是线程安全的。多线程场景每个线程造一个。
+2. **外部引擎失败自动回退**：FFmpeg 崩了会回退到备用方案（如果可用）。
+3. **大文件内存保护**：文档域自动检测内存压力，超过 500MB 时启用流式处理或拒绝加载。
+4. **线程安全**：`Converter` 实例现在是线程安全的，可在多线程环境中共享使用。
 
 ## 扩展
 
