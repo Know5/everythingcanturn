@@ -5,6 +5,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.coverage
+htmlcov/
 
 # 引擎二进制不入库，用 convcore engines install 获取。
 # 必须锚定仓库根（/engines/）——裸的 engines/ 会匹配任意层级，
