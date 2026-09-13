@@ -293,7 +293,7 @@ class Converter:
             # 长耗时插件（ffmpeg 转码）需要在单条边内部上报进度。把内部比例
             # 映射到这条边在整条路径上占的区间，进度条才不会卡在某一段上不动。
             inner = self._edge_progress(progress, i, total, edge) if progress else None
-            plugin_opts = {**opts, "_policy": pol}
+            plugin_opts = {**opts, "_policy": pol, "_tmp": tmp}
             if inner is not None:
                 plugin_opts["_progress"] = inner
             if (cancel := opts.get("_cancel")) is not None:
