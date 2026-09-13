@@ -25,6 +25,7 @@ LOSSY + LOSSY ≠ STRUCTURAL。用户真正在意的是「最差的一环有多�
 from __future__ import annotations
 
 import heapq
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -32,6 +33,8 @@ from typing import Any
 from .formats import domain_of, label_of, normalize
 from .registry import Capability, Codec, DirectConverter, Registry
 from .types import Domain, LossTier, MediaType, NoPathError
+
+logger = logging.getLogger(__name__)
 
 
 class EdgeKind(Enum):
@@ -128,10 +131,9 @@ BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
     ("vector", "raster", LossTier.STRUCTURAL, 2.0, 1.0),
     ("document", "raster", LossTier.STRUCTURAL, 8.0, 1.0),
     # PDF → 语义文档树：抽文本并按字号推断标题层级。PDF 不含「这是标题」的语义，
-    # 所以是 INFERRED。fidelity 低是因为表格和图片全丢——同样是 INFERRED，
-    # pdf2docx 会还原表格，这条路不会。没有 fidelity 维度时图搜索会选这条
-    # （它快 3 倍），产出一个没有表格的 Word。
-    ("document", "markup", LossTier.INFERRED, 6.0, 0.55),
+    # 所以是 INFERRED。fidelity 0.85：完整保留文本内容和标题层级，只丢失表格和图片。
+    # 对于通用文档提取（标题、段落、大纲）优于 document→table 绕道。
+    ("document", "markup", LossTier.INFERRED, 6.0, 0.85),
     # 表格 → 树形：每行变成一个对象，总是可行且无损。
     ("table", "tree", LossTier.LOSSLESS, 1.5, 1.0),
     # 树形 → 表格：只在树是「对象数组」时才有意义。形状不对时桥接会明确报错，
@@ -139,6 +141,9 @@ BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
     ("tree", "table", LossTier.STRUCTURAL, 2.0, 0.7),
     # 表格 → 标记语言：渲染成 Markdown/HTML 表格
     ("table", "markup", LossTier.LOSSLESS, 2.0, 1.0),
+    # 表格 → 文档：直接渲染成 PDF 表格页面。数据完整保留，样式是默认样式，
+    # 标 LOSSLESS。相比 table→markup→document，这条路省去中间标记语言的物化。
+    ("table", "document", LossTier.LOSSLESS, 2.5, 1.0),
     # 树形 → 标记语言：JSON/YAML 渲染成可读文档（对象数组变表格，嵌套变列表）。
     # 结构被映射为文档元素（表格/列表），无信息丢失，标 LOSSLESS。
     ("tree", "markup", LossTier.LOSSLESS, 2.0, 1.0),
@@ -148,6 +153,19 @@ BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
     # 图片 → PDF：每图一页嵌成 PDF 对象，像素原样保留（不加再压缩）。
     # 页面尺寸从图片推断，所以结构上无新增猜测，标 LOSSLESS。
     ("raster", "document", LossTier.LOSSLESS, 2.0, 1.0),
+    # 视频/音频 → 位图：提取封面帧（第一帧）。对视频文件有意义（截图），
+    # 对纯音频文件无意义但允许（可能有封面图）。标 LOSSLESS 是因为帧本身
+    # 不丢信息，只是从流中取了一个切片。
+    ("media", "raster", LossTier.LOSSLESS, 1.5, 1.0),
+    # 位图 → 视频：图片序列/多帧动图合成视频。帧像素无损保留（只是重编码），
+    # 标 LOSSLESS。如果目标是有损编码器（H.264/VP9），损失由 WRITE 边承担。
+    ("raster", "media", LossTier.LOSSLESS, 2.5, 1.0),
+    # PDF → 表格：提取文档中的表格。pdfplumber 只能抽取明确的表格结构，
+    # 对于文本排版成列的"伪表格"无能为力，标 INFERRED（内容完整但结构推断）。
+    # fidelity 0.8：多页多表时只取第一个表格，版面复杂时识别不准。
+    ("document", "table", LossTier.INFERRED, 5.0, 0.8),
+    # 矢量 → 标记语言：SVG 直接嵌入 HTML，保留可缩放性。零损失，比栅格化更优。
+    ("vector", "markup", LossTier.LOSSLESS, 1.0, 1.0),
 )
 
 
@@ -262,6 +280,9 @@ class FormatGraph:
             active.add(label_id)
             heapq.heappush(heap, (cost, counter, state, path, label_id))
 
+        # 收集到达终点的候选路径用于调试日志
+        candidates: list[tuple[Cost, list[Edge]]] = []
+
         while heap:
             cost, _, state, edges, label_id = heapq.heappop(heap)
             if label_id not in active:
@@ -270,7 +291,17 @@ class FormatGraph:
             # edges 非空的判断处理 allow_identity=False：起点即终点时不能立即返回，
             # 得真的绕一圈枢纽出来
             if node == goal and (edges or allow_identity):
-                return Path(edges)
+                candidates.append((cost, edges))
+                # 只取第一个到达终点的路径（堆保证了它是最优的）
+                if len(candidates) == 1:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"路径选择: {label_of(src)} → {label_of(dst)}\n"
+                            f"  选中: {Path(edges).describe()}\n"
+                            f"  成本: (max_loss={cost[0]}, lossy_steps={cost[1]}, "
+                            f"fid_penalty={cost[2]:.2f}, time={cost[3]:.1f})"
+                        )
+                    return Path(edges)
             tier, lossy, fid_penalty, elapsed = cost
             for edge in self.edges_from(node):
                 # 落到中间格式节点（不是终点）才算一次物化

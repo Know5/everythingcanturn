@@ -168,3 +168,34 @@ def _render_resvg(
         err = proc.stderr.decode("utf-8", "replace").strip() or "无错误输出"
         raise RuntimeError(f"resvg 渲染失败：{err}")
     return dst.read_bytes()
+
+
+def vector_to_markup(doc: VectorDoc, opts: dict[str, Any], pol: Policy) -> Any:
+    """vector → markup 桥接：将 SVG 嵌入 HTML 文档。
+
+    SVG 本身就是 markup 格式，可以直接内嵌到 HTML 中。这是零损失的转换，
+    保留了矢量的可缩放性——比栅格化成位图要好。
+    """
+    from ..ir.markup import RAW, Block, DocTree, Span
+
+    # 解码 SVG 字节为文本
+    svg_text = doc.data.decode("utf-8", "replace")
+
+    # 将 SVG 作为 RAW 块嵌入 DocTree
+    blocks = [
+        Block(
+            kind=RAW,
+            spans=[Span(svg_text)],
+            attrs={"format": "html", "tag": "svg"},
+        )
+    ]
+
+    title = opts.get("title", "SVG 图形")
+
+    pol.note(
+        "矢量保留",
+        Strategy.EMULATE,
+        "SVG 直接嵌入 HTML，保留可缩放性",
+    )
+
+    return DocTree(blocks=blocks, title=title, source_type=doc.source_type)

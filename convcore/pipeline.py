@@ -257,6 +257,17 @@ class Converter:
                 data=res.path.read_bytes(),
                 name=res.name,
             )
+        # 插件返回了内存数据，但调用方要求持久化（如测试需要验证产物文件）
+        if res.data is not None and persist_dir is not None:
+            from .formats import primary_extension
+            ext = primary_extension(res.media_type) or ".bin"
+            fd, raw_target = tempfile.mkstemp(
+                prefix="convcore-result-", suffix=ext, dir=persist_dir
+            )
+            os.close(fd)
+            target = Path(raw_target)
+            target.write_bytes(res.data)
+            return Resource(media_type=res.media_type, path=target, name=res.name)
         return res
 
     def _run(
@@ -387,6 +398,26 @@ class Converter:
             from .plugins.markup_tree import tree_to_markup
 
             return tree_to_markup(ir, opts, pol)
+        if (src_domain, dst_domain) == ("media", "raster"):
+            from .plugins.media import extract_cover_frame
+
+            return extract_cover_frame(ir, opts, pol)
+        if (src_domain, dst_domain) == ("raster", "media"):
+            from .plugins.media_image_seq import raster_to_video
+
+            return raster_to_video(ir, opts, pol)
+        if (src_domain, dst_domain) == ("table", "document"):
+            from .plugins.document_build import table_to_document
+
+            return table_to_document(ir, opts, pol)
+        if (src_domain, dst_domain) == ("document", "table"):
+            from .plugins.document_extract import document_to_table
+
+            return document_to_table(ir, opts, pol)
+        if (src_domain, dst_domain) == ("vector", "markup"):
+            from .plugins.vector import vector_to_markup
+
+            return vector_to_markup(ir, opts, pol)
         raise ConversionError(
             f"跨域桥接 {src_domain} ⇒ {dst_domain} 尚未实现"
         )

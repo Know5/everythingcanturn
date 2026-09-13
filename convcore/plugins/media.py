@@ -193,3 +193,56 @@ class FFmpegCodec:
         for a in decision.actions:
             if a.action == "transcode":
                 pol.note(f"{a.kind} 重编码", Strategy.APPROXIMATE, a.reason)
+
+
+def extract_cover_frame(
+    ir: MediaPlan, opts: dict[str, Any], pol: Policy
+) -> Any:
+    """跨域桥：media → raster，提取视频第一帧或音频封面图。
+
+    返回 Raster IR（io.BytesIO 的图像数据）。对纯音频文件，如果有封面图流
+    就提取它；没有封面图则报错。对视频文件，提取第一帧。
+    """
+    from ..engines.probe import require
+    from ..engines import base
+    from ..ir.raster import Raster
+    import io
+
+    tmp = Path(opts.get("_tmp") or ".")
+    exe = require("ffmpeg")
+    src = ir.source.materialize(tmp)
+    dst = tmp / "frame.png"
+
+    # 使用 -vf select='eq(n,0)' 提取第一帧，对音频封面图也有效（会提取 attached_pic 流）
+    cmd = [
+        str(exe), "-y",
+        "-i", str(src),
+        "-vf", "select=eq(n\\,0)",
+        "-frames:v", "1",
+        "-f", "image2",
+        str(dst),
+    ]
+
+    try:
+        base.run(cmd, timeout=30.0, engine_name="ffmpeg")
+
+        if not dst.is_file() or dst.stat().st_size == 0:
+            raise ConversionError(
+                "无法从媒体文件提取封面帧（可能是纯音频且无封面图）"
+            )
+
+        data = dst.read_bytes()
+        dst.unlink(missing_ok=True)
+
+        # 返回 Raster IR：用 Pillow 加载成 Frame
+        from PIL import Image
+        from ..ir.raster import Frame
+
+        img = Image.open(io.BytesIO(data))
+        return Raster(frames=[Frame(image=img)])
+    except Exception as e:
+        dst.unlink(missing_ok=True)
+        if isinstance(e, ConversionError):
+            raise
+        raise ConversionError(f"提取封面帧失败：{e}")
+

@@ -200,13 +200,16 @@ def build_command(
     参数顺序有讲究：全局选项 → 输入 → 流映射 → 编码参数 → 输出。
     ffmpeg 对顺序敏感，把输出选项放到 -i 之前会静默失效。
     """
-    cmd: list[str | Path] = [
-        exe,
-        "-hide_banner",
-        "-nostdin",       # 不要试图读 stdin，否则在某些环境下会挂住
-        "-y",             # 覆盖由我们自己在上层判断，这里总是允许
-        "-i", src,
-    ]
+    cmd: list[str | Path] = [exe, "-hide_banner", "-nostdin", "-y"]
+
+    # 处理图片序列输入（raster→media 桥）
+    if plan.extra.get("input_framerate"):
+        cmd += ["-framerate", str(plan.extra["input_framerate"])]
+    if plan.extra.get("input_pattern_type") == "sequence":
+        # image2 解复用器默认就是序列模式，不需要额外参数
+        pass
+
+    cmd += ["-i", src]
 
     scale = _scale_filter(opts) if plan.is_video else None
 
