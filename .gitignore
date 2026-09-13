@@ -6,8 +6,10 @@ __pycache__/
 dist/
 build/
 
-# 引擎二进制不入库，用 convcore engines install 获取
-engines/
+# 引擎二进制不入库，用 convcore engines install 获取。
+# 必须锚定仓库根（/engines/）——裸的 engines/ 会匹配任意层级，
+# 把源码模块 convcore/engines/ 一起挡掉，导致 CI clone 缺这个子包。
+/engines/
 
 # 测试产物
 tests/golden/*.actual.*

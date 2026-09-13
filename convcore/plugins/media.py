@@ -38,6 +38,9 @@ _VIDEO_TYPES = (
     "video/x-msvideo",
     "video/x-flv",
     "video/mp2t",
+    # WMV 写侧：asf 容器装微软 wmv/wma 编码。读侧已有（上边 *caps 加了），
+    # 这里补进写出列表让图搜索接通双向。编码器在 codecs.py 的 DEFAULT_ENCODERS。
+    "video/x-ms-wmv",
 )
 _AUDIO_TYPES = (
     "audio/mpeg",
@@ -47,6 +50,7 @@ _AUDIO_TYPES = (
     "audio/ogg",
     "audio/opus",
     "audio/x-aiff",
+    "audio/x-ms-wma",
 )
 
 
@@ -59,7 +63,6 @@ class FFmpegCodec:
     reads = (
         *caps(*_VIDEO_TYPES, time_cost=2.0),
         *caps(*_AUDIO_TYPES, time_cost=2.0),
-        *caps("video/x-ms-wmv", "audio/x-ms-wma", time_cost=2.0),
     )
 
     # 写出声明成 LOSSY：这是最坏情况的诚实声明。实际可能是 COPY（remux），
