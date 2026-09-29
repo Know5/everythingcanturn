@@ -67,21 +67,50 @@ class Registry:
     """插件集合，以及从中派生的能力索引。"""
 
     def __init__(self) -> None:
+        self._all: list[Plugin] = []
+        """注册过的全部插件（含不可用的），按注册顺序。refresh 靠它重新判定。"""
         self._plugins: list[Plugin] = []
         self._unavailable: dict[str, str] = {}
         """插件名 → 不可用原因。用于 doctor 报告缺什么依赖。"""
 
     def add(self, plugin: Plugin) -> None:
+        self._all.append(plugin)
         # 插件可以声明 available() 表示依赖是否就绪（如 pillow-heif 没装）。
         # 不可用的插件不进图，但要记下原因——「不支持 HEIC」和「装个包就支持」
         # 对用户是完全不同的信息。
+        reason = self._check(plugin)
+        if reason is None:
+            self._plugins.append(plugin)
+        else:
+            self._unavailable[plugin.name] = reason
+
+    @staticmethod
+    def _check(plugin: Plugin) -> str | None:
+        """可用返回 None，否则返回不可用原因。"""
         check = getattr(plugin, "available", None)
-        if check is not None:
-            ok, reason = check()
-            if not ok:
-                self._unavailable[plugin.name] = reason
-                return
-        self._plugins.append(plugin)
+        if check is None:
+            return None
+        ok, reason = check()
+        return None if ok else reason
+
+    def refresh(self) -> None:
+        """重新判定每个插件是否可用。
+
+        可用性只在注册时判定一次，之后新建的 Converter 都沿用这个结果。
+        所以装好外部引擎（ffmpeg、LibreOffice）后必须调这里，否则要重启进程才生效。
+
+        先算出新列表再整体替换，不原地增删：并发新建 Converter 的线程看到的
+        要么是旧列表、要么是新列表，不会是填了一半的。
+        """
+        plugins: list[Plugin] = []
+        unavailable: dict[str, str] = {}
+        for p in self._all:
+            reason = self._check(p)
+            if reason is None:
+                plugins.append(p)
+            else:
+                unavailable[p.name] = reason
+        self._plugins, self._unavailable = plugins, unavailable
 
     @property
     def plugins(self) -> list[Plugin]:
@@ -165,14 +194,17 @@ def default_registry() -> Registry:
 
         # 重加载场景：reset_registry() 清空后 _LOADED=False，但插件模块
         # 已在 sys.modules 缓存。import_module 是 no-op，@register 不会跑，
-        # 注册表静默保持空——所以只要表是空的就走 reload。
-        plugins.load_all(reload=len(_REGISTRY._plugins) == 0)
+        # 注册表静默保持空——所以只要一个插件都没注册过就走 reload。
+        # 看 _all 而不是 _plugins：插件全都不可用时 _plugins 也是空的，
+        # 那时 reload 会把同一批插件重复注册一遍。
+        plugins.load_all(reload=not _REGISTRY._all)
     return _REGISTRY
 
 
 def reset_registry() -> None:
     """仅供测试使用：清空注册表以便注入假插件。"""
     global _LOADED
+    _REGISTRY._all.clear()
     _REGISTRY._plugins.clear()
     _REGISTRY._unavailable.clear()
     _LOADED = False

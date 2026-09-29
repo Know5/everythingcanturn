@@ -134,6 +134,41 @@ def test_out_dir_round_trip(api: Api, tmp_path) -> None:
     assert api.env()["outDir"] is None
 
 
+def test_install_engine_takes_effect_without_restart(api: Api, monkeypatch) -> None:
+    """回归：装完引擎只新建 Converter，注册表仍是启动时的判定，要重启才生效。
+
+    用私有注册表 + 假插件模拟「启动时缺引擎、装完就有」，不碰全局注册表。
+    """
+    from types import SimpleNamespace
+
+    from convcore.engines import install as install_mod
+    from convcore.pipeline import Converter
+    from convcore.registry import Registry
+
+    from .test_registry import Toggle
+
+    engine = Toggle("fake-engine", "image/x-late", ready=False)
+    reg = Registry()
+    reg.add(engine)
+    api._conv = Converter(reg)
+    assert "image/x-late" not in api._conv.registry.writable()
+    assert "fake-engine" in api.env()["unavailable"]
+
+    def fake_install(key, progress=None):
+        engine.ready = True
+        return SimpleNamespace(version="1.0", path="engines/fake")
+
+    monkeypatch.setattr(install_mod, "install", fake_install)
+    assert api.install_engine("fake")["ok"]
+
+    assert "image/x-late" in api._conv.registry.writable()
+    # 格式图也得跟着重建：新格式有了出边，inspect 才能列出它能转去哪
+    assert api._conv.graph.edges_from(("fmt", "image/x-late")), "格式图没有随注册表重建"
+    env = api.env()
+    assert "fake-engine" in env["plugins"]
+    assert "fake-engine" not in env["unavailable"]
+
+
 # ── inspect ──
 
 

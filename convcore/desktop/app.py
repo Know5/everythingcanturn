@@ -637,8 +637,11 @@ class Api:
         except InstallError as exc:
             return {"ok": False, "error": str(exc)}
 
-        # 装完要重建注册表和格式图，否则新能力不生效
-        self._conv = Converter()
+        # 注册表只在启动时判定一次插件可用性，光新建 Converter 还是旧结果：
+        # 必须先 refresh，新 Converter 建出来的格式图才带上刚装的引擎。
+        # 之后每个任务新建的 Converter 也共用这个注册表，同样生效。
+        self._conv.registry.refresh()
+        self._conv = Converter(self._conv.registry)
         return {"ok": True, "version": res.version, "path": str(res.path)}
 
 

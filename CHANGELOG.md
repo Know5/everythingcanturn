@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Content constraints in path search: bridges declare what their output lacks (`BRIDGE_LACKS`),
   edges declare what they need (`BRIDGE_REQUIRES`, `Capability.requires`), and
   `Converter.refine_targets` probes what a specific file lacks
+- `Registry.refresh()` re-evaluates plugin availability
 - `tests/test_reachability.py`: converts every listed target of each sample source end to end
 
 ### Changed
@@ -38,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Odd-sized frames no longer break libx264 / libx265 / wmv2. Documents and data → MP4 / MKV /
   MOV / FLV / MPEG-TS always failed before, because rendered pages are 1240×1755
 - Transparent sources to WebM no longer fail (VP9 now gets `-pix_fmt yuv420p` instead of `gbrap`)
+- Desktop GUI: installing an engine takes effect immediately; previously it needed a restart
 - Web UI: a rejected POST (403) no longer resets the connection before the client reads the
   response. The handler now reads the request body before its checks
 - Examples now perform real conversions on generated samples; previously every conversion
