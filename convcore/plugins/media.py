@@ -67,9 +67,11 @@ class FFmpegCodec:
 
     # 写出声明成 LOSSY：这是最坏情况的诚实声明。实际可能是 COPY（remux），
     # 由 write 回填真实值。图搜索用最坏情况排序是对的——不能承诺做不到的保真。
+    # 音频格式要求有音轨：图片合成的视频、无声视频转 MP3 只会报「装不下任何流」
     writes = (
         *caps(*_VIDEO_TYPES, loss=LossTier.LOSSY, time_cost=60.0, options=_VIDEO_OPTS),
-        *caps(*_AUDIO_TYPES, loss=LossTier.LOSSY, time_cost=15.0, options=_AUDIO_OPTS),
+        *caps(*_AUDIO_TYPES, loss=LossTier.LOSSY, time_cost=15.0, options=_AUDIO_OPTS,
+              requires={"audio"}),
     )
 
     def available(self) -> tuple[bool, str]:
@@ -207,6 +209,13 @@ def extract_cover_frame(
     from ..engines import base
     from ..ir.raster import Raster
     import io
+
+    # 纯音频交给 ffmpeg 只会得到一个看不懂的退出码，先说清楚
+    if not ir.has_picture:
+        raise ConversionError(
+            "这个文件没有画面也没有封面图，截不出图片"
+            "（只有视频、或带封面的音频才能转成图片/PDF）"
+        )
 
     tmp = Path(opts.get("_tmp") or ".")
     exe = require("ffmpeg")

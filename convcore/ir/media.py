@@ -110,6 +110,11 @@ class MediaPlan:
         return bool(self.video)
 
     @property
+    def has_picture(self) -> bool:
+        """有没有能截成图的画面：视频轨或封面图。media ⇒ raster 桥的前提。"""
+        return bool(self.video or self.cover_art)
+
+    @property
     def is_audio_only(self) -> bool:
         return not self.video and bool(self.audio)
 

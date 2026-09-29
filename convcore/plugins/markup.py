@@ -60,8 +60,9 @@ class MarkupCodec:
         Capability(HTML, LossTier.LOSSLESS, 1.0, _OPTS),
         # Markdown 表达不了合并单元格和任意 HTML 属性
         Capability(MD, LossTier.LOSSLESS, 1.0, _OPTS),
-        # 纯文本丢掉全部格式——这是结构性损失，不是「有损压缩」
-        Capability(TXT, LossTier.STRUCTURAL, 0.5),
+        # 纯文本丢掉全部格式——这是结构性损失，不是「有损压缩」。
+        # 要求有文字：只有一段原始 SVG 的文档树（SVG→纯文本）写出来是空文件
+        Capability(TXT, LossTier.STRUCTURAL, 0.5, requires=frozenset({"text"})),
     )
 
     def available(self) -> tuple[bool, str]:

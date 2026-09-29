@@ -192,6 +192,9 @@ class Codec(Protocol):
         """可选：依赖是否就绪。不就绪的插件不进图，原因显示在 doctor 里。"""
 ```
 
+写出格式对内容有要求时，在 `caps` 里用 `requires` 声明，比如 `caps("audio/mpeg", requires={"audio"})`：
+缺这种内容的路径不会被搜出来（见下文「跨域桥接」的内容约束）。
+
 `options` 里除了用户参数，还有执行器注入的 `_tmp`（工作目录）、`_policy`（记录降级告警）、
 `_progress`、`_cancel`。同一文件还定义了绕过枢纽的 `DirectConverter` 协议，图搜索支持它，
 但目前没有插件用：remux 由媒体域的 `MediaPlan` 在写出时判定，LibreOffice 也是按 Codec 接入的。
@@ -279,6 +282,17 @@ dist/convcore/convcore.exe  # 启动 GUI
 
 两端的域都有可用插件时，桥才进图。表里的档位是桥本身的损失，整条路径取各边最差的一档，
 比如 PDF→JPEG：桥是 STRUCTURAL，JPEG 写出是 LOSSY，整条路径记 STRUCTURAL。
+
+**内容约束**：有些桥的产物天生缺某种内容，之后需要这种内容的边就不会被搜出来：
+
+- 图片嵌成的 PDF 没有文本层：PNG 能转 PDF，但不列 Markdown、CSV、Word
+- 图片合成的视频没有音轨：PNG 能转 MP4，但不列 MP3
+- SVG 嵌进文档树只是一段原始 SVG：能转 HTML、Markdown、EPUB，但不列纯文本、Word、表格
+
+具体文件缺什么，要在转换前打开文件才知道：纯音频（没有封面图）不列图片和 PDF，
+无声视频不列音频格式，扫描件 PDF 不列要抽文字的目标。这一步由 `Converter.refine_targets`
+完成，GUI、Web UI 和 `convcore targets` 用的都是它。约束声明在 `convcore/graph.py` 的
+`BRIDGE_LACKS` / `BRIDGE_REQUIRES`，插件写出能力用 `Capability.requires` 声明（如 MP3 要求 `audio`）。
 
 **位图 → 矢量（描摹）尚未实现**：PNG→SVG 目前没有路径，设计在 `feature/raster-to-vector` 分支。
 

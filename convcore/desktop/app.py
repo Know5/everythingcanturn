@@ -280,8 +280,8 @@ class Api:
         # 按域分组，组内按保真度排序。全部格式平铺成一个下拉框没法用。
         groups: dict[str, list[dict[str, Any]]] = {}
         order = list(_TIER.values())
-        for mt, cpath in targets.items():
-            tier = actual[mt]
+        for mt, tier in actual.items():  # actual 已剔除这个文件走不通的目标
+            cpath = targets[mt]
             d = domain_of(mt) or "other"
             groups.setdefault(d, []).append(
                 {

@@ -122,7 +122,10 @@ def convert_image(
 3. **登记模块**：把模块名加进 `convcore/plugins/__init__.py` 的 `_MODULES`（不会自动扫描目录）
 4. **登记格式**：在 `convcore/formats.py` 的 `_TABLE` 加 MIME、域、扩展名、显示名；
    有魔数的格式在 `convcore/sniff.py` 加识别。否则认不出源文件、CLI 解析不了目标名
-5. **声明能力**：`reads` / `writes` 用 `caps(...)` 声明（`convcore.types`）
+5. **声明能力**：`reads` / `writes` 用 `caps(...)` 声明（`convcore.types`）。写出格式对内容
+   有要求时加 `requires`，如音频格式要音轨 `caps("audio/mpeg", requires={"audio"})`、纯文本要
+   文字 `requires={"text"}`，否则图片合成的视频转 MP3 这类注定失败的路径会出现在列表里。
+   新增跨域桥时，同时在 `graph.py` 的 `BRIDGE_LACKS` / `BRIDGE_REQUIRES` 声明产物缺什么、输入要什么
 6. **可选依赖**：如果需要外部库，在 `pyproject.toml` 添加到对应 extra，并实现 `available()`
 7. **编写测试**：在 `tests/` 下添加往返测试和失败路径测试
 8. **更新文档**：在 README 的格式列表中补充新格式

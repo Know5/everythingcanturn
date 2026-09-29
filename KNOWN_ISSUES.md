@@ -37,10 +37,21 @@
 
 4. **扫描件 OCR 未集成**
    `document_word.py` 的 `_preflight` 会拦截无文本层的 PDF，提示需要 OCR。
-   当前未集成 Tesseract 中文包（约 50MB）。
+   当前未集成 Tesseract 中文包（约 50MB）。扫描件和图片不再列出 Markdown / Word / CSV
+   这类要抽文字的目标（见 README「内容约束」），集成 OCR 后要同步放开。
 
 5. **PSD 只读、RAW 只读**
    `PsdCodec`/`RawCodec` 的 `writes = ()`，只能作为源转出，不能作为目标。
+
+6. **图片 → Word 不可用**
+   以前能「转」，实际是 pdf2docx 把图片原样塞进 .docx，与它自己拒绝扫描件的预检矛盾，
+   2026-09-29 起不再列出。要支持应写一个 raster → DOCX 的直接写出（python-docx 插图），
+   而不是借道 PDF 版面还原。
+
+7. **经 PDF 抽表格，结果取决于内容**
+   HTML、DOCX 等 → CSV / Excel 仍会列出：有没有表格要抽了才知道，事先探测等于做一遍转换。
+   抽不到时报「PDF 中未找到可提取的表格」（实测只有标题和段落的 HTML 就是这样）；
+   纯文本则常被 pdfplumber 当成单列表格抽出来。
 
 ## 三、可选依赖/引擎未装（装了即恢复）
 

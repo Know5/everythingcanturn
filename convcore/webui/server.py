@@ -104,8 +104,8 @@ class UiState:
         actual = self.converter.refine_targets(path, src_mt, targets)
 
         items = []
-        for mt, cpath in targets.items():
-            tier = actual[mt]
+        for mt, tier in actual.items():  # actual 已剔除这个文件走不通的目标
+            cpath = targets[mt]
             items.append(
                 {
                     "mime": mt,

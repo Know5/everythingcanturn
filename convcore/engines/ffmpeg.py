@@ -167,6 +167,10 @@ def _quality_args(encoder: str, kind: str, opts: dict[str, Any]) -> list[str]:
     return []
 
 
+_EVEN_SIZE_ENCODERS = frozenset({"libx264", "libx265", "wmv2"})
+"""宽高必须是偶数的视频编码器（实测 65×63 输入直接报错；VP9、mpeg4、flv 不受影响）。"""
+
+
 def _scale_filter(opts: dict[str, Any]) -> str | None:
     """构造 scale 滤镜。-2 让 ffmpeg 自动取偶数，因为 H.264 要求偶数尺寸。"""
     w, h = opts.get("width"), opts.get("height")
@@ -233,14 +237,23 @@ def build_command(
             )
             cmd += ["-c:v", enc]
             cmd += _quality_args(enc, "video", opts)
-            if scale:
-                cmd += ["-vf", scale]
+            filters = [scale] if scale else []
+            if enc in _EVEN_SIZE_ENCODERS:
+                # 4:2:0 色度按 2×2 采样，这几个编码器要求宽高是偶数。scale 的 -2
+                # 只管缩放的情况；PDF 页渲染（1240×1755）、裁过的截图这类奇数尺寸
+                # 源会直接报错。裁掉最后一行/列像素，偶数尺寸时是空操作。
+                filters.append("crop=trunc(iw/2)*2:trunc(ih/2)*2")
+            if filters:
+                cmd += ["-vf", ",".join(filters)]
             if enc in ("libx264", "libx265"):
                 cmd += ["-preset", str(opts.get("preset_speed", "medium"))]
                 # yuv420p 保证广泛兼容；不加的话 10bit 源会产出很多播放器不认的文件
                 cmd += ["-pix_fmt", str(opts.get("pix_fmt", "yuv420p"))]
             if enc == "libvpx-vp9":
                 cmd += ["-row-mt", "1"]
+                # 不指定时 ffmpeg 给带透明的源（SVG 渲染图、透明 PNG）选 gbrap，
+                # libvpx 拒绝打开编码器，SVG→WebM 直接失败
+                cmd += ["-pix_fmt", str(opts.get("pix_fmt", "yuv420p"))]
             if fps := opts.get("fps"):
                 cmd += ["-r", str(fps)]
 

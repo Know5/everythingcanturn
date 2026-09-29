@@ -85,30 +85,57 @@ class Converter:
     def refine_targets(
         self, source: Path, src_mt: MediaType, targets: dict[MediaType, ConvPath]
     ) -> dict[MediaType, LossTier]:
-        """针对具体文件算出每个目标的真实损失等级。
+        """针对具体文件算出每个目标的真实损失等级，并剔除这个文件走不通的目标。
 
         静态声明只能给最坏情况，但 UI 必须在转换前告诉用户真实情况——
         「MKV→MP4 免重编码」和「MKV→MP4 要重压」对用户是完全不同的决策。
         一次探测供所有目标复用，不重复开进程。
+
+        返回值的键是 targets 的子集：这个文件缺的内容会让一部分路径走不通——
+        纯音频截不出图、无声视频抽不出音轨、扫描件抽不出文字——这些目标被去掉。
+        调用方应遍历返回值，而不是 targets。
         """
         out: dict[MediaType, LossTier] = {mt: p.loss for mt, p in targets.items()}
 
         from .formats import domain_of
 
-        if domain_of(src_mt) != "media":
+        lacks: set[str] = set()
+        plan = None
+        domain = domain_of(src_mt)
+        if domain == "document":
+            try:
+                from .plugins.document import has_text_layer
+
+                if has_text_layer(source) is False:
+                    lacks.add("text")
+            except Exception:
+                pass  # 探测失败就按静态声明列，不该让 targets 命令挂掉
+        elif domain == "media":
+            try:
+                from .engines import ffmpeg
+
+                plan = ffmpeg.analyze(
+                    Resource(media_type=src_mt, path=source), source.parent
+                )
+            except Exception:
+                return out  # 同上
+            if not plan.has_picture:
+                lacks.add("picture")
+            if not plan.audio:
+                lacks.add("audio")
+
+        if lacks:
+            frozen = frozenset(lacks)
+            for mt, cpath in targets.items():
+                if cpath.blocked_under(frozen):
+                    del out[mt]
+
+        if plan is None:
             return out
 
-        try:
-            from .engines import codecs as codec_tbl
-            from .engines import ffmpeg
+        from .engines import codecs as codec_tbl
 
-            plan = ffmpeg.analyze(
-                Resource(media_type=src_mt, path=source), source.parent
-            )
-        except Exception:
-            return out  # 探测失败就退回静态声明，不该让 targets 命令挂掉
-
-        for mt in targets:
+        for mt in list(out):
             if mt not in codec_tbl.CONTAINER_CODECS:
                 continue
             try:
@@ -117,6 +144,8 @@ class Converter:
                 continue
             kept = [a for a in d.actions if a.action != "drop"]
             if not kept:
+                # 目标容器装不下源里任何一条流，转换必然报「无法容纳」
+                del out[mt]
                 continue
             if d.can_copy_all:
                 out[mt] = LossTier.COPY

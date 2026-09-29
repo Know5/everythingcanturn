@@ -137,6 +137,37 @@ def analyze(res: Resource, tmp: Path, password: str | None = None) -> DocumentRe
         doc.close()
 
 
+_PROBE_PAGES = 30
+"""探测文本层时最多看多少页。inspect 要快，大文档均匀抽样。"""
+
+
+def has_text_layer(path: Path) -> bool | None:
+    """PDF 有没有文本层。扫描件（八成页面只有图像）返回 False，加密的返回 None。
+
+    给 Converter.refine_targets 用：扫描件不该列出 Markdown / Word / CSV 这类
+    要抽文字的目标。只数字符和图片，不做表格检测，比 analyze 便宜得多。
+    """
+    import pymupdf
+
+    with quiet_stderr(), pymupdf.open(path) as doc:
+        if doc.needs_pass:
+            return None  # 没密码看不到内容，不猜
+        n = doc.page_count
+        idx = sorted({i * n // _PROBE_PAGES for i in range(_PROBE_PAGES)}) if n > _PROBE_PAGES else range(n)
+        scanned = sum(
+            PageInfo(
+                index=i,
+                width=0.0,
+                height=0.0,
+                char_count=len((doc[i].get_text("text") or "").strip()),
+                image_count=len(doc[i].get_images(full=False)),
+            ).is_scanned
+            for i in idx
+        )
+    # 判定口径与 DocumentRef.is_scanned_doc 一致：八成页面是扫描页才算扫描件
+    return not (idx and scanned >= len(idx) * 0.8)
+
+
 @register
 class PdfCodec:
     """PDF 读入 + 渲染成位图。

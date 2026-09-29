@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from convcore.graph import EdgeKind, FormatGraph
+from convcore.graph import EdgeKind, FormatGraph, Path
 from convcore.registry import Registry
 from convcore.types import Capability, LossTier, NoPathError, caps
 
@@ -259,3 +259,79 @@ def test_reachable_from_lists_targets():
     targets = g.reachable_from("image/png")
     assert {"image/bmp", "image/tiff", "image/gif"} <= set(targets)
     assert "image/png" not in targets
+
+
+# ── 内容约束：桥的产物缺什么、边要什么 ──
+
+
+def _media_graph():
+    return make_graph(
+        FakeCodec("ras", "raster", caps("image/png"), ()),
+        FakeCodec("med", "media", caps("video/mp4"),
+                  (*caps("video/mp4"), *caps("audio/mpeg", requires={"audio"}))),
+    )
+
+
+def test_image_made_video_has_no_audio_track():
+    """raster ⇒ media 合成的视频没有音轨：PNG→MP4 可达，PNG→MP3 不列。"""
+    g = _media_graph()
+    assert g.find_path("image/png", "video/mp4").edges
+    with pytest.raises(NoPathError):
+        g.find_path("image/png", "audio/mpeg")
+    # 真视频不受影响：约束跟着路径走，不是跟着格式走
+    assert g.find_path("video/mp4", "audio/mpeg").edges
+
+
+def _doc_graph():
+    return make_graph(
+        FakeCodec("ras", "raster", caps("image/png"), ()),
+        FakeCodec("doc", "document", caps("application/pdf"), caps("application/pdf")),
+        FakeCodec("mk", "markup", caps("text/markdown"),
+                  (*caps("text/markdown"), *caps("text/plain", requires={"text"}))),
+    )
+
+
+def test_pdf_from_image_has_no_text_layer():
+    """图片嵌成的 PDF 抽不出文字：PNG→PDF 可达，PNG→Markdown 不列。"""
+    g = _doc_graph()
+    assert g.find_path("image/png", "application/pdf").edges
+    with pytest.raises(NoPathError):
+        g.find_path("image/png", "text/markdown")
+    # 普通 PDF 照常能抽文字
+    assert g.find_path("application/pdf", "text/markdown").edges
+
+
+def test_missing_content_survives_materialization():
+    """缺的内容落盘再读回来也补不回来：PNG→PDF 落盘→读回→抽文字 仍然走不通。"""
+    g = _doc_graph()
+    [bridge] = [e for e in g.edges_from(("hub", "raster")) if e.dst == ("hub", "document")]
+    [write_pdf] = [e for e in g.edges_from(("hub", "document")) if e.dst == ("fmt", "application/pdf")]
+    [read_pdf] = g.edges_from(("fmt", "application/pdf"))
+    [to_markup] = [e for e in g.edges_from(("hub", "document")) if e.dst == ("hub", "markup")]
+    [read_png] = g.edges_from(("fmt", "image/png"))
+    detour = Path([read_png, bridge, write_pdf, read_pdf, to_markup])
+    assert detour.blocked_under(frozenset())
+    assert not Path([read_pdf, to_markup]).blocked_under(frozenset())
+
+
+def test_embedded_svg_tree_has_no_text():
+    """vector ⇒ markup 的文档树只有一段 SVG：能写 Markdown/HTML，不列纯文本。"""
+    g = make_graph(
+        FakeCodec("vec", "vector", caps("image/svg+xml"), ()),
+        FakeCodec("mk", "markup", caps("text/markdown"),
+                  (*caps("text/markdown"), *caps("text/plain", requires={"text"}))),
+    )
+    assert g.find_path("image/svg+xml", "text/markdown").edges
+    with pytest.raises(NoPathError):
+        g.find_path("image/svg+xml", "text/plain")
+
+
+def test_blocked_under_file_level_lacks():
+    """具体文件缺的内容（无声视频没有音轨）由调用方探测后传进来判定。"""
+    g = _media_graph()
+    path = g.find_path("video/mp4", "audio/mpeg")
+    assert path.blocked_under(frozenset({"audio"}))
+    assert not path.blocked_under(frozenset({"picture"}))
+    assert not g.find_path("video/mp4", "video/mp4", allow_identity=False).blocked_under(
+        frozenset({"audio"})
+    )

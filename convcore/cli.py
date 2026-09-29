@@ -343,14 +343,17 @@ def cmd_targets(args: argparse.Namespace) -> int:
         print("没有可用的转换目标")
         return 0
 
-    # 针对这个具体文件算真实损失，而不是静态最坏情况
+    # 针对这个具体文件算真实损失，而不是静态最坏情况；走不通的目标已被剔除
     actual = conv.refine_targets(src, src_mt, targets)
+    if not actual:
+        print("没有可用的转换目标")
+        return 0
 
     # 按损失等级排序，最保真的在前——这正是 UI 下拉框该有的顺序
-    for mt, path in sorted(
-        targets.items(), key=lambda kv: (actual[kv[0]], kv[1].time_cost, kv[0])
+    for mt, tier in sorted(
+        actual.items(), key=lambda kv: (kv[1], targets[kv[0]].time_cost, kv[0])
     ):
-        tier = actual[mt]
+        path = targets[mt]
         note = ""
         if tier < path.loss:
             note = "  ← 免重编码" if tier is LossTier.COPY else "  ← 实测更保真"

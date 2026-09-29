@@ -52,7 +52,10 @@ class DocxCodec:
     domain = "markup"
     reads = (Capability(DOCX, LossTier.STRUCTURAL, 3.0),)
     """读入是 STRUCTURAL：DOCX 的分页、页眉页脚、批注、修订映射不进 DocTree。"""
-    writes = (Capability(DOCX, LossTier.LOSSLESS, 4.0, frozenset({"title"})),)
+    # 要求有文字：原始 SVG 块塞不进 Word（见 _emit），SVG→Word 只会得到空文档
+    writes = (
+        Capability(DOCX, LossTier.LOSSLESS, 4.0, frozenset({"title"}), requires=frozenset({"text"})),
+    )
 
     def available(self) -> tuple[bool, str]:
         try:

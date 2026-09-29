@@ -273,6 +273,51 @@ def test_refine_targets_on_audio_only_source(media):
     assert actual["audio/mpeg"] is LossTier.LOSSY
 
 
+def test_refine_targets_drops_what_this_file_cannot_do(media):
+    """纯音频截不出图、无声视频抽不出音轨：这些目标不该出现在列表里。"""
+    from convcore.pipeline import Converter
+
+    conv = Converter()
+    wav = media["wav"]
+    actual = conv.refine_targets(wav, "audio/wav", conv.targets_for("audio/wav"))
+    assert "audio/flac" in actual
+    assert "image/png" not in actual and "application/pdf" not in actual
+
+    silent = media["webm_vp9"]  # 生成时 -an，没有音轨
+    actual = conv.refine_targets(silent, "video/webm", conv.targets_for("video/webm"))
+    assert "video/mp4" in actual and "image/png" in actual
+    assert "audio/mpeg" not in actual and "audio/wav" not in actual
+
+
+def test_audio_without_cover_to_image_says_why(media, tmp_path):
+    """列表里已经不给，但 API/CLI 仍可能硬转。要说清原因，不能甩一个 ffmpeg 退出码。"""
+    from convcore.types import ConversionError
+
+    with pytest.raises(ConversionError, match="没有画面也没有封面"):
+        convert_file(media["wav"], "png", out_dir=tmp_path)
+
+
+@pytest.mark.parametrize(("size", "target"), [((65, 64), "mp4"), ((64, 65), "wmv")])
+def test_odd_sized_image_to_video(size, target, tmp_path):
+    """libx264 / wmv2 要求偶数宽高。PDF 页渲染（1240×1755）这类奇数尺寸以前直接报错。"""
+    from PIL import Image
+
+    src = tmp_path / "odd.png"
+    Image.new("RGB", size, (200, 30, 40)).save(src)
+    res = convert_file(src, target, out_dir=tmp_path)
+    assert res.outputs[0].path.stat().st_size > 0
+
+
+def test_transparent_image_to_webm(tmp_path):
+    """带透明的源不指定 pix_fmt 时，ffmpeg 给 VP9 选 gbrap，libvpx 拒绝打开编码器。"""
+    from PIL import Image
+
+    src = tmp_path / "alpha.png"
+    Image.new("RGBA", (64, 64), (200, 30, 40, 128)).save(src)
+    res = convert_file(src, "webm", out_dir=tmp_path)
+    assert res.outputs[0].path.stat().st_size > 0
+
+
 def test_refine_targets_ignores_non_media(samples):
     """图片文件不该触发 ffprobe，静态声明直接返回。"""
     from convcore.pipeline import Converter

@@ -167,6 +167,12 @@ class Capability:
     往往是最糙的。PDF→Word 就踩过这个坑：抽文本的桥接路径比 pdf2docx 快 3 倍，
     但丢掉全部表格。
     """
+    requires: frozenset[str] = frozenset()
+    """这条能力要求内容里有什么："text"（文字）、"audio"（音轨）、"picture"（画面）。
+
+    写 MP3 要有音轨，写 TXT 要有文字。图搜索据此排除注定失败或产出空文件的路径，
+    比如 PNG 经 raster ⇒ media 得到的视频没有音轨，就不会列出 PNG→MP3。见 graph.CONTENT。
+    """
 
 
 def caps(
@@ -175,16 +181,19 @@ def caps(
     time_cost: float = 1.0,
     options: frozenset[str] | set[str] = frozenset(),
     fidelity: float = 1.0,
+    requires: frozenset[str] | set[str] = frozenset(),
 ) -> tuple[Capability, ...]:
     """批量声明同代价的能力。插件里最常见的写法。
 
     >>> caps("image/png", "image/bmp")                    # 两个无损格式
     >>> caps("image/jpeg", loss=LossTier.LOSSY)           # 有损
+    >>> caps("audio/mpeg", requires={"audio"})            # 源里得有音轨
     """
-    opts = frozenset(options)
+    opts, req = frozenset(options), frozenset(requires)
     return tuple(
         Capability(
-            mt, loss=loss, time_cost=time_cost, options=opts, fidelity=fidelity
+            mt, loss=loss, time_cost=time_cost, options=opts, fidelity=fidelity,
+            requires=req,
         )
         for mt in media_types
     )

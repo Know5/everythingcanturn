@@ -137,10 +137,10 @@ class SofficeDocCodec(_SofficeCodecBase):
         # PPTX 也在这里：python-pptx 不在依赖里，soffice 是唯一路径
         Capability(PPTX, LossTier.STRUCTURAL, 6.0),
     )
-    writes = (
-        Capability(DOC, LossTier.LOSSLESS, 8.0),
-        Capability(PPT, LossTier.LOSSLESS, 8.0),
-        Capability(ODT, LossTier.LOSSLESS, 5.0),
+    # 要求有文字：写出先经 DocxCodec 落 DOCX，原始 SVG 块在那一步就丢了
+    writes = tuple(
+        Capability(mt, LossTier.LOSSLESS, cost, requires=frozenset({"text"}))
+        for mt, cost in ((DOC, 8.0), (PPT, 8.0), (ODT, 5.0))
     )
 
     def available(self) -> tuple[bool, str]:

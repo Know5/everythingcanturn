@@ -92,7 +92,9 @@ class PdfToWord:
     writes = (
         # INFERRED 而非 STRUCTURAL：这不是「丢了些东西」，是「猜出来的可能是错的」。
         # 等级选错会让 UI 显示成可逆转换，误导用户。
-        Capability(DOCX, LossTier.INFERRED, 40.0, _OPTS),
+        # requires text：版面还原靠文本层。图片嵌成的 PDF、扫描件不列出 Word，
+        # 与 _preflight 拒绝扫描件一致。
+        Capability(DOCX, LossTier.INFERRED, 40.0, _OPTS, requires=frozenset({"text"})),
     )
 
     def available(self) -> tuple[bool, str]:

@@ -326,20 +326,31 @@ def _render_table(pager: _Pager, table_block: Block) -> None:
 
 
 def build_document_ref(path: Path, title: str | None) -> DocumentRef:
-    """从 PDF 文件构建 DocumentRef IR。"""
+    """从 PDF 文件构建 DocumentRef IR。
+
+    每页的文字数和图片数必须如实填：下游靠 PageInfo.is_scanned 判断有没有文本层。
+    漏填时图片嵌成的 PDF 被当成「0 字 0 图」的普通页，抽文字静默产出空文件，
+    pdf2docx 的扫描件预检也拦不住。
+    """
     import pymupdf
 
     from ..types import Resource
 
     doc = pymupdf.open(path)
     try:
-        n = doc.page_count
+        pages = [
+            PageInfo(
+                index=i,
+                width=page.rect.width,
+                height=page.rect.height,
+                char_count=len((page.get_text("text") or "").strip()),
+                image_count=len(page.get_images(full=False)),
+            )
+            for i, page in enumerate(doc)
+        ]
         return DocumentRef(
             source=Resource(media_type=MediaType("application/pdf"), path=path),
-            pages=[
-                PageInfo(index=i, width=doc[i].rect.width, height=doc[i].rect.height)
-                for i in range(n)
-            ],
+            pages=pages,
             title=title,
         )
     finally:
