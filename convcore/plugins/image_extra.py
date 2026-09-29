@@ -1,4 +1,4 @@
-"""依赖可选包的位图格式：HEIC / AVIF / JPEG XL / PSD / RAW。
+"""依赖可选包的位图格式：HEIC / AVIF / PSD / RAW。（JPEG XL 未实现，见 formats.py）
 
 每个插件用 available() 报告依赖是否就绪。缺依赖时它不进图，但原因会记在注册表里，
 让 doctor 能说清「装 pillow-heif 就能支持 HEIC」而不是笼统的「不支持」。

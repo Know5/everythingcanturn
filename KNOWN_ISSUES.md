@@ -1,29 +1,32 @@
 # 已知问题与后续建议
 
-> 记录截至 2026-09-14 的收尾状态。用于交接给下一个会话或贡献者，避免重复排查。
+> 记录截至 2026-09-29 的状态。用于交接给下一个会话或贡献者，避免重复排查。
 > 安全的优先级分析见 [SECURITY_REVIEW.md](SECURITY_REVIEW.md)。
+> 本文件和 README 描述的能力都应能在代码里找到对应；对不上时以代码为准，并回来修文档。
 
 ## 一、测试覆盖率短板
 
-当前覆盖率 **71%**（6699 语句，1975 未覆盖）。除以下模块外，其余均 ≥85%。
+当前覆盖率 **73%**（6706 语句，1797 未覆盖）。除以下模块外，其余均 ≥85%。
 
 | 模块 | 覆盖率 | 原因 |
 |------|--------|------|
-| `cli.py` | 0% | 命令行入口，子函数多为 `argparse` 驱动的 I/O 逻辑，难用 pytest 覆盖 |
-| `webui/server.py` | 0% | HTTP 服务端，需 `ThreadingHTTPServer` 起真实服务测试 |
+| `cli.py` | 0% | 命令行入口。`main(argv)` 可直接调用，CI 冒烟测试走的也是 CLI，只是还没写 pytest 用例 |
+| `webui/server.py` | 68% | `tests/test_webui.py` 起真实服务测安全边界和转换主路径；未覆盖的是原生选择框、reveal 等系统集成 |
 | `engines/install.py` | 50% | 大量分支依赖真实网络下载（HTTPS/SHA256/解压），本地无法触发 |
 | `plugins/office_soffice.py` | 51% | 依赖外部 LibreOffice（soffice），当前环境未装 |
 | `desktop/app.py` | 52% | pywebview 原生窗口，需 GUI 环境 |
-| `plugins/image_extra.py` | 56% | 大量失败分支依赖可选包（pillow-heif/rawpy 等）未安装 |
+| `plugins/image_extra.py` | 54% | 大量失败分支依赖可选包（pillow-heif/rawpy 等）未安装 |
 
-> 这些低覆盖绝大多数是**外部依赖/界面**触发的分支，属于"装了才有、不装就没有"的场景，
-> 并非逻辑缺陷。CLI/WebUI 若需补测，应写 `subprocess`/`http` 集成测试而非 mock。
+> 这些低覆盖绝大多数是**外部依赖/界面**触发的分支，属于"装了才有、不装就没有"的场景。
+> 但 `webui/server.py` 在 0% 时藏过一个真实的 P1（不校验 Host，见 SECURITY_REVIEW），
+> 所以「低覆盖 ≠ 没缺陷」。CLI 补测同样应写真实调用的集成测试而非 mock。
 
 ## 二、功能缺口（按影响排序）
 
 1. **位图 → 矢量（raster → vector）桥接未实现**
    桥接表 `BRIDGES` 只有 `vector → raster`（栅格化）。反向的 `raster → vector`（描摹）
-   在 README 里标为 INFERRED，但当前无插件实现。图搜索不会搜出这条路径。
+   当前无实现，图搜索不会搜出这条路径，README 已如实标注。设计已批准，在
+   `feature/raster-to-vector` 分支：`docs/superpowers/specs/2026-09-20-raster-to-vector-design.md`。
 
 2. **JPEG XL（image/jxl）未支持**
    `formats.py` 明确留言"JPXL 留在表外：无插件实现"。要支持需引入
@@ -60,17 +63,11 @@
 - 极少数 `pass` 语句（共 22 处）均为"尽力而为"的防御分支（如标注失败不该中断转换），
   无裸 `except:`。
 
-## 五、待推送
+## 五、文档曾与代码脱节（2026-09-29 已修正）
 
-`main` 领先 `origin/main` **8 个提交**，尚未 push。
+提交 `4a3aa49`「feat: 完成所有跨域桥接功能」只改了 README，却把「限制」一节从正确描述
+改成了代码没有的行为（引擎失败自动回退、500MB 流式处理、`Converter` 线程安全），
+桥接表写了不存在的 raster→vector（potrace）以及没用到的 reportlab、camelot。
+`d38837b` 的 examples 声称「已验证可运行」，实际所有转换调用都被注释，且用的 API 不存在。
 
-```
-b128707 文档增强：为核心类型和函数添加 docstring
-75206e3 chore: 将覆盖率报告加入 .gitignore
-d38837b docs: 补充项目文档与示例代码
-ad43077 恢复 _tmp 参数传递以修复桥接和插件的临时目录访问
-502d065 修复动图转视频时用户指定帧率被忽略的问题 + 移除 _tmp 参数传递
-4a3aa49 feat: 完成所有跨域桥接功能
-2bc085f 扩展跨域桥：media↔raster、table↔document、vector→markup
-b32b6b1 树形标记跨域桥 + GUI 损失档位显示 + 大文件预检 + 线程安全改进
-```
+已按代码实况修正 README、CHANGELOG、examples。之后改文档时，能力描述要能指到具体代码或测试。

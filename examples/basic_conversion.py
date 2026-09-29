@@ -1,161 +1,116 @@
-"""基础转换示例：演示最常见的文件转换场景。"""
+"""基础转换示例：每一段都真的执行。
 
+输入样本在临时目录里现场生成，跑完自动清理，不需要准备任何文件。
+只依赖基础安装（Pillow）；跨域到 PDF 那段需要 document extra，缺了会提示并跳过。
+
+运行：python examples/basic_conversion.py
+"""
+
+from __future__ import annotations
+
+import sys
+import tempfile
 from pathlib import Path
-from convcore import Converter
+
+from PIL import Image, ImageDraw
+
+from convcore import Converter, NoPathError, convert_file
+from convcore.jobs import JobQueue
+
+# 路径描述里有 ⇒ 这类 GBK 编不出的符号。输出重定向到文件/管道时 Windows 默认 GBK，
+# 不切 UTF-8 会抛 UnicodeEncodeError。与 convcore/cli.py 同样处理。
+if sys.platform == "win32":
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
 
 
-def example_image_format_conversion():
-    """图片格式转换：PNG → JPEG。"""
-    print("=== 图片格式转换 ===")
+def make_samples(d: Path) -> dict[str, Path]:
+    photo = Image.new("RGB", (640, 480), (40, 90, 160))
+    ImageDraw.Draw(photo).ellipse([160, 80, 480, 400], fill=(240, 200, 60))
+    photo.save(d / "photo.png")
+    photo.save(d / "photo.bmp")
 
-    conv = Converter()
-
-    # 单文件转换
-    # conv.convert("photo.png", "output.jpeg")
-
-    # 或者指定 MIME 类型
-    # conv.convert("photo.png", target_mime="image/jpeg")
-
-    # 带质量参数
-    # conv.convert("photo.png", "output.jpeg", quality=95)
-
-    print("转换完成：photo.png → output.jpeg\n")
+    logo = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    ImageDraw.Draw(logo).ellipse([8, 8, 120, 120], fill=(220, 50, 60, 255))
+    logo.save(d / "logo.png")
+    return {"photo": d / "photo.png", "bmp": d / "photo.bmp", "logo": d / "logo.png"}
 
 
-def example_document_extraction():
-    """文档提取：PDF → Markdown。"""
-    print("=== PDF 转 Markdown ===")
-
-    conv = Converter()
-
-    # PDF 文本提取并推断标题层级
-    # result = conv.convert("report.pdf", "report.md")
-
-    # 路径会自动规划：PDF → [document] → [markup] → Markdown
-    # 损失等级：INFERRED（标题层级基于字号推断）
-
-    print("转换完成：report.pdf → report.md\n")
+def example_single(src: Path, out: Path) -> None:
+    print("=== 单文件：PNG → WebP ===")
+    # 目标可以写扩展名（webp / .webp）或 MIME（image/webp）
+    res = convert_file(src, "webp", out_dir=out)
+    o = res.outputs[0].path
+    print(f"  {o.name}  {o.stat().st_size} 字节  损失：{res.loss.label}  路径：{res.path_desc}")
 
 
-def example_video_conversion():
-    """视频转换：MP4 → WebM。"""
-    print("=== 视频格式转换 ===")
-
-    conv = Converter()
-
-    # 视频转码（需要 FFmpeg）
-    # result = conv.convert("video.mp4", "output.webm")
-
-    # 带预设
-    # result = conv.convert("video.mp4", "output.webm", preset="web-video")
-
-    print("转换完成：video.mp4 → output.webm\n")
+def example_options(src: Path, out: Path) -> None:
+    print("\n=== 带参数：质量 + 限制最长边 ===")
+    res = convert_file(
+        src, "jpeg", out_path=out / "photo-small.jpg",
+        overrides={"quality": 80, "max_edge": 320},
+    )
+    with Image.open(res.outputs[0].path) as im:
+        print(f"  {res.outputs[0].path.name}  {im.size}")
 
 
-def example_batch_conversion():
-    """批量转换：将目录中的所有 HEIC 照片转为 PNG。"""
-    print("=== 批量转换 ===")
-
-    conv = Converter()
-
-    # 获取所有 HEIC 文件
-    # heic_files = list(Path("photos").glob("*.heic"))
-
-    # 批量转换，带进度回调
-    # results = conv.batch(
-    #     heic_files,
-    #     target_mime="image/png",
-    #     output_dir="photos_png",
-    #     on_progress=lambda p: print(f"{p.percent:.0f}% - {p.file.name}")
-    # )
-
-    # print(f"转换完成：{len(results)} 个文件")
-
-    print("批量转换示例\n")
+def example_preset(src: Path, out: Path) -> None:
+    print("\n=== 预设：web ===")
+    res = convert_file(src, "webp", out_path=out / "photo-web.webp", preset="web")
+    print(f"  {res.outputs[0].path.name}  {res.outputs[0].path.stat().st_size} 字节")
 
 
-def example_inspect_capabilities():
-    """探测能力：查看某格式能转换到哪些目标。"""
-    print("=== 探测转换能力 ===")
-
-    conv = Converter()
-
-    # 查询从 PNG 可达的所有目标格式
-    targets = conv.graph.reachable_from("image/png")
-
-    print(f"PNG 可转换到 {len(targets)} 种格式：")
-    for mime, path in sorted(targets.items())[:5]:
-        print(f"  - {mime}: {path.describe()}")
-        print(f"    损失: {path.loss.name}, 步数: {len(path.edges)}")
-
-    print(f"  ... 还有 {len(targets) - 5} 种格式\n")
+def example_batch(sources: list[Path], out: Path) -> None:
+    print("\n=== 批量：JobQueue，同名产物自动消歧 ===")
+    # photo.png 和 photo.bmp 都转 webp，第二个会命名为 photo-bmp.webp
+    q = JobQueue()
+    q.add_files(sources, "webp", out_dir=out / "batch")
+    for job in q.run():
+        name = job.result.outputs[0].path.name if job.result else job.error
+        print(f"  {job.source.name:10} → {name}  [{job.state.value}]")
 
 
-def example_find_path():
-    """路径规划：查看两个格式间的转换路径。"""
-    print("=== 路径规划 ===")
-
-    conv = Converter()
-
-    # 查找 HEIC → JPEG 的路径
+def example_overwrite(src: Path, out: Path) -> None:
+    print("\n=== 覆盖保护：目标已存在时默认拒绝 ===")
     try:
-        path = conv.graph.find_path("image/heic", "image/jpeg")
-        print(f"HEIC → JPEG 路径：")
-        print(f"  {path.describe()}")
-        print(f"  损失: {path.loss.name}")
-        print(f"  有损步数: {path.lossy_steps}")
-        print(f"  中间物化: {path.materializations}")
-    except Exception as e:
-        print(f"找不到路径: {e}")
-
-    print()
+        convert_file(src, "webp", out_dir=out)  # example_single 已经产出过
+    except Exception as exc:
+        print(f"  {type(exc).__name__}: {exc}")
+    res = convert_file(src, "webp", out_dir=out, overwrite=True)
+    print(f"  overwrite=True 后成功：{res.outputs[0].path.name}")
 
 
-def example_cross_domain_bridge():
-    """跨域桥接：视频截图转 PDF 文档。"""
-    print("=== 跨域桥接 ===")
-
-    conv = Converter()
-
-    # 视频 → 位图 → 文档，路径自动规划
-    # result = conv.convert("video.mp4", "screenshot.pdf")
-
-    # 路径：MP4 → [media] → [raster] → [document] → PDF
-    # 第一跳：提取首帧（LOSSLESS）
-    # 第二跳：图片嵌入 PDF 页面（LOSSLESS）
-
-    print("跨域转换：video.mp4 → screenshot.pdf\n")
+def example_cross_domain(src: Path, out: Path) -> None:
+    print("\n=== 跨域：PNG → PDF（经 raster ⇒ document 桥）===")
+    try:
+        res = convert_file(src, "pdf", out_dir=out)
+    except NoPathError as exc:
+        print(f"  跳过：{exc}（需要 pip install -e \".[document]\"）")
+        return
+    print(f"  {res.outputs[0].path.name}  路径：{res.path_desc}")
 
 
-def example_with_options():
-    """带选项的转换：精细控制输出质量。"""
-    print("=== 带选项的转换 ===")
-
-    conv = Converter()
-
-    # 图片转换带质量参数
-    # conv.convert("photo.png", "output.jpeg", quality=95)
-
-    # 视频转换带编码选项
-    # conv.convert("input.mp4", "output.webm",
-    #              video_bitrate=2000, audio_bitrate=128)
-
-    # 文档转换带页面范围
-    # conv.convert("document.pdf", "extract.txt", pages="1-5")
-
-    print("选项示例\n")
+def example_targets() -> None:
+    print("\n=== 查询：PNG 能转成什么 ===")
+    targets = Converter().targets_for("image/png")
+    print(f"  共 {len(targets)} 种，前几种：")
+    for mt, path in list(targets.items())[:5]:
+        print(f"  {mt:24} {path.loss.label}")
 
 
 if __name__ == "__main__":
-    # 运行所有示例（注释掉实际转换调用，避免找不到文件）
-    example_image_format_conversion()
-    example_document_extraction()
-    example_video_conversion()
-    example_batch_conversion()
-    example_inspect_capabilities()
-    example_find_path()
-    example_cross_domain_bridge()
-    example_with_options()
-
-    print("所有示例运行完成！")
-    print("\n提示：取消注释实际转换代码并准备对应的输入文件后即可运行真实转换。")
+    with tempfile.TemporaryDirectory() as d:
+        work = Path(d)
+        s = make_samples(work)
+        out = work / "out"
+        example_single(s["photo"], out)
+        example_options(s["photo"], out)
+        example_preset(s["photo"], out)
+        example_batch([s["photo"], s["bmp"]], out)
+        example_overwrite(s["photo"], out)
+        example_cross_domain(s["logo"], out)
+        example_targets()
+    print("\n全部示例执行完毕。")

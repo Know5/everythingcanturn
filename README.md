@@ -21,7 +21,7 @@ MP4 → [视频帧流+音频流] → WebM
 关键设计：
 
 - **中心枢纽架构**（hub-and-spoke）：N 种格式不写 N² 个转换器，只需 N 个 reader + N 个 writer。新增格式成本是 O(1)。
-- **格式图搜索**：多跳路径自动计算，`DOC → LibreOffice → DOCX → Pandoc → Markdown` 不需要手写。
+- **格式图搜索**：多跳路径自动计算，`DOC →(LibreOffice)→ DOCX →[文档树]→ Markdown` 不需要手写。
 - **显式损失标记**：每条边带权重（信息损失档位），路径规划时优先选保真度最高的。
 
 支持的信息域：
@@ -62,17 +62,18 @@ pip install -e ".[all]"
 `archive`、`font`、`desktop`。这些 extras 只安装 Python 包；FFmpeg、LibreOffice、
 resvg 可执行文件和 RAR 的 UnRAR 后端仍需按下方说明单独安装。
 
-或下载预构建包（Windows x64，254MB，含所有依赖）：
+也可以用 PyInstaller 打成 Windows 可执行包（onedir，约 254MB，含所有 Python 依赖），见下文「打包」：
 
 ```
-dist/convcore/  # 解压后直接运行
+dist/convcore/
   convcore.exe      # GUI
   convcore-cli.exe  # 命令行
 ```
 
 **外部引擎**（可选，按需安装）：
 
-- **FFmpeg**：音视频转换必需。[下载](https://www.gyan.dev/ffmpeg/builds/)放 PATH 或与 exe 同目录。
+- **FFmpeg**：音视频转换必需。`convcore engines install ffmpeg` 一键下载（版本和 SHA256 钉在
+  `convcore/engines/manifest.py`），或自行[下载](https://www.gyan.dev/ffmpeg/builds/)放 PATH / 与 exe 同目录。
 - **resvg**：SVG 转位图。可优先安装 `pip install -e ".[vector]"` 使用 Python 绑定，
   也可以使用 [resvg 单文件](https://github.com/linebender/resvg/releases)。
 - **rawpy**：相机 RAW 格式（CR2/NEF/ARW）。`pip install -e ".[raw]"`。
@@ -85,14 +86,23 @@ dist/convcore/  # 解压后直接运行
 # 基础转换
 convcore convert photo.heic -t jpeg
 
-# 批量（保留目录结构）
-convcore convert docs/*.pdf -t docx -o ./output
+# 批量：产物平铺到 -d 目录，同名产物自动消歧（photo.webp / photo-bmp.webp）
+# 通配符由 shell 展开：bash/zsh 可以；PowerShell 和 cmd 不展开，需逐个列出文件
+convcore convert docs/*.pdf -t docx -d ./output
 
-# 指定质量
-convcore convert video.mov -t mp4 --preset web-video
+# 单文件指定输出路径
+convcore convert photo.png -t webp -o out/photo.webp
 
-# 探测可达目标
-convcore inspect mystery.bin
+# 参数预设（original / web / compact / archive）或单项参数
+convcore convert video.mov -t mp4 -p web
+convcore convert photo.png -t jpeg -q 85 --max-edge 1920
+
+# 探测可达目标、查看路径与损失等级
+convcore targets mystery.bin
+convcore path photo.heic pdf
+
+# 环境诊断：缺哪些依赖、哪些引擎没装
+convcore doctor
 ```
 
 ### GUI
@@ -101,76 +111,90 @@ convcore inspect mystery.bin
 
 1. 拖文件进来，自动识别格式并列出可转选项（按域分组、保真度排序）
 2. 选目标格式，点转换
-3. 实时进度条，完成后自动打开输出目录
+3. 实时进度条，完成后可一键定位产物或直接打开
 
 ### Python API
 
 ```python
-from convcore import Converter
+from pathlib import Path
 
-conv = Converter()
+from convcore import Converter, convert_file
+from convcore.jobs import JobQueue
 
-# 单文件
-conv.convert("input.png", "output.webp")
+# 单文件：目标可写扩展名或 MIME，产物落到 out_dir
+res = convert_file(Path("input.png"), "webp", out_dir=Path("out"))
+print(res.outputs[0].path, res.loss.label, res.warnings)
 
-# 批量 + 进度回调
-conv.batch(
-    ["a.heic", "b.png"], 
-    target_mime="image/jpeg",
-    on_progress=lambda p: print(f"{p.percent:.0f}% {p.file}")
-)
+# 批量 + 进度回调：并发执行，同名产物自动消歧
+q = JobQueue(listener=lambda job: print(f"{job.progress:4.0%} {job.source.name} {job.state.value}"))
+q.add_files([Path("a.heic"), Path("b.png")], "jpeg", out_dir=Path("out"))
+q.run()
 
-# 探测能力
-targets = conv.targets_for("image/heic")  # → {image/jpeg: ..., image/png: ...}
+# 探测能力：目标 MIME → 转换路径（含损失等级）
+targets = Converter().targets_for("image/heic")
+for mt, path in targets.items():
+    print(mt, path.loss.label, path.describe())
 ```
+
+`convert_file` 的常用参数：`out_path`（精确输出路径）、`preset`、`overrides`
+（如 `{"quality": 85, "max_edge": 1920}`）、`overwrite`、`progress`。
+底层接口是 `Converter.convert(ConvertRequest(...))`，处理内存中的 `Resource`。
 
 ## 架构
 
 ```
 convcore/
-├── types.py          # IR 定义（Raster/Document/MediaStream/...）
-├── registry.py       # 插件注册表，format → plugin 映射
-├── graph.py          # 格式图 + Dijkstra 路径搜索
-├── pipeline.py       # 执行器：加载 IR → 路径规划 → 分段转换
-├── engines.py        # 外部引擎探测（ffmpeg/resvg/...）
+├── types.py          # 核心类型：Resource、LossTier、Capability、异常
+├── formats.py        # MIME ↔ 扩展名 ↔ 域 映射表
+├── sniff.py          # 魔数嗅探，扩展名只作回退
+├── registry.py       # 插件注册表（@register）
+├── graph.py          # 格式图 + 跨域桥表 + 字典序代价的最短路搜索
+├── pipeline.py       # 执行器：Converter / convert_file
+├── policy.py         # 降级策略与参数预设
+├── jobs.py           # 批量任务队列：并发、进度、取消
+├── ir/               # 各域中间表示：raster / document / markup / media / data
+├── engines/          # 外部引擎：探测、子进程调用、ffmpeg 封装、下载安装
 ├── plugins/
-│   ├── pillow.py     # 9 种常见图片
-│   ├── avif.py       # AVIF（pillow-heif）
-│   ├── psd.py        # PSD 读取
-│   ├── ffmpeg.py     # 16 读 / 14 写音视频
-│   ├── pymupdf.py    # PDF 读取
-│   ├── pdf2docx.py   # PDF → DOCX（版面推断）
-│   ├── pypdf.py      # DOCX/MD → PDF
-│   ├── docx.py       # DOCX ↔ IR
-│   ├── markup.py     # MD/HTML/TXT ↔ IR
-│   ├── epub.py       # EPUB ↔ IR
-│   ├── document_build.py  # 桥：DocTree → PDF、Raster → PDF（跨域排页）
-│   ├── data_tree.py  # JSON/YAML/TOML/XML
-│   ├── data_table.py # CSV/TSV/XLSX/NDJSON/Parquet
-│   ├── archive.py    # ZIP/7z/TAR/RAR/GZ/BZ2/XZ
-│   └── fonttools.py  # TTF/OTF/WOFF/WOFF2
+│   ├── image.py          # Pillow：PNG/JPEG/WebP/GIF/TIFF/BMP/ICO/PPM/TGA
+│   ├── image_extra.py    # 可选包：HEIC/AVIF、PSD（只读）、RAW（只读）
+│   ├── vector.py         # SVG 读入；桥：栅格化、嵌入 HTML
+│   ├── media.py          # 音视频：容器互转、转码、抽音轨；桥：截封面帧
+│   ├── media_image_seq.py  # 桥：图片序列 / 动图 → 视频
+│   ├── document*.py      # PDF：渲染、分页操作、PDF→Word、排版建 PDF、表格提取
+│   ├── markup*.py        # MD/HTML/TXT ↔ 文档树；桥：PDF 抽文本、数据树渲染
+│   ├── office.py         # DOCX、EPUB ↔ 文档树
+│   ├── office_soffice.py # LibreOffice：DOC/XLS/PPT/PPTX/ODT/ODS
+│   ├── data_tree.py      # JSON/YAML/TOML/XML
+│   ├── data_table.py     # CSV/TSV/NDJSON/XLSX/Parquet
+│   ├── archive.py        # ZIP/7z/TAR/GZ/BZ2/XZ，RAR 只读
+│   └── font.py           # TTF/OTF/WOFF/WOFF2
 ├── cli.py            # 命令行入口
-├── webui/            # Flask 服务器（开发预览）
-└── desktop/          # pywebview 原生窗口
+├── webui/            # 标准库 http.server 本地服务（convcore ui）+ 前端静态资源
+└── desktop/          # pywebview 原生窗口（convcore gui），经 js_api 调 Python
 ```
 
-插件接口（伪代码）：
+插件接口（`convcore/registry.py` 里的 `Codec` 协议）：
 
 ```python
-class Plugin:
-    domain: str           # "raster" | "media" | "document" | ...
-    reads: list[str]      # MIME 类型
-    writes: list[str]
-    
-    def parse(self, path: Path) -> IR:
-        """文件 → 中间表示"""
-    
-    def write(self, ir: IR, out: Path, **options) -> None:
-        """中间表示 → 文件"""
-    
-    def refine_loss(self, src_mime: str, dst_mime: str, path: Path) -> LossTier:
-        """动态修正损失档位（可选，用于内容相关的决策）"""
+class Codec(Protocol):
+    name: str
+    domain: Domain                    # "raster" | "media" | "document" | ...
+    reads: tuple[Capability, ...]     # 用 caps("image/png", loss=..., time_cost=...) 声明
+    writes: tuple[Capability, ...]
+
+    def parse(self, resources: list[Resource], options: dict) -> IR:
+        """资源 → 本域中间表示。列表是为了支持多进一出。"""
+
+    def write(self, ir: IR, target: MediaType, options: dict) -> list[Resource]:
+        """中间表示 → 资源。返回列表是为了支持一进多出。"""
+
+    def available(self) -> tuple[bool, str]:
+        """可选：依赖是否就绪。不就绪的插件不进图，原因显示在 doctor 里。"""
 ```
+
+`options` 里除了用户参数，还有执行器注入的 `_tmp`（工作目录）、`_policy`（记录降级告警）、
+`_progress`、`_cancel`。同一文件还定义了绕过枢纽的 `DirectConverter` 协议，图搜索支持它，
+但目前没有插件用：remux 由媒体域的 `MediaPlan` 在写出时判定，LibreOffice 也是按 Codec 接入的。
 
 ## 转换质量
 
@@ -180,27 +204,38 @@ class Plugin:
 | **LOSSLESS** | 信息完整保留 | PNG→BMP, JSON→YAML |
 | **LOSSY** | 有损但可接受 | PNG→JPEG, WAV→MP3 |
 | **STRUCTURAL** | 结构简化 | DOCX→TXT（丢样式） |
-| **INFERRED** | 需要推断补全 | TXT→DOCX（段落边界靠猜） |
+| **INFERRED** | 需要推断补全 | PDF→DOCX、PDF→Markdown（段落和标题靠版面推断） |
 
-路径搜索时优先选低档位。相同档位下选耗时短的。
+路径搜索按字典序比较：先比路径上最差的损失档位，再比有损步数，再比保真度损失，
+最后才比耗时。保真度排在耗时前面，是为了避免同档位里「最快但最糙」的路径胜出。
+
+静态声明只代表最坏情况。媒体文件会在转换前探测流信息：能免重编码（remux）的目标
+显示为实际档位，比如 H.264 编码的 MKV→MP4 显示为 COPY 而不是 LOSSY。
 
 ## 测试
 
 ```bash
 pytest tests/ -v
 
-# 单域
-pytest tests/test_images.py -k heic
+# 单个文件 / 按名字筛选
+pytest tests/test_matrix.py
+pytest tests/test_sniff.py -k heic
 
 # 覆盖率
 pytest --cov=convcore --cov-report=html
 ```
 
+依赖可选包或外部引擎（ffmpeg、soffice、pillow-heif 等）的用例在缺依赖时自动跳过。
+
 核心测试策略：
 
-- **往返测试**：A→B→A，用领域度量验证（图像 PSNR、文档树 diff）
-- **黄金样本**：每种格式留 3-5 个真实文件，回归跑
-- **边界探测**：空文件、1 字节、超大尺寸、损坏头部
+- **样本程序合成**：`tests/conftest.py` 等在测试时生成图片、动图、SVG、PDF 等样本，
+  基本不依赖入库的二进制（`test_samples/` 里的少量文件只有 LibreOffice 用例在用）；
+  带奇怪 EXIF、非标准编码的真实文件放在手动验收里
+- **格式矩阵**：`test_matrix.py` 批量跑格式对，图像用 PSNR/SSIM 验证（`tests/fidelity.py`）
+- **往返测试**：A→B→A 验证内容保留，如 JSON→YAML→JSON、MD→HTML→MD、ZIP→7z→ZIP
+- **失败路径**：空输入、损坏文件、解压炸弹、截断下载、子进程超时与输出上限
+- **Web UI 安全边界**：`test_webui.py` 起真实服务，验证 token、Origin、Host 校验
 
 ## 打包
 
@@ -223,52 +258,80 @@ dist/convcore/convcore.exe  # 启动 GUI
 
 ## 跨域桥接
 
-系统支持多种跨域转换，在不同格式域之间建立桥梁：
+桥表在 `convcore/graph.py` 的 `BRIDGES`，分发在 `pipeline.Converter._bridge`：
 
-| 转换方向 | 实现方式 | 损失档位 | 说明 |
-|---------|---------|---------|------|
-| **raster → vector** | potrace | INFERRED | 位图描摹为矢量 SVG |
-| **media → raster** | ffmpeg | LOSSLESS | 视频截取首帧 |
-| **raster → media** | ffmpeg | LOSSLESS | 图片序列转视频 |
-| **table → document** | reportlab | LOSSY | 表格数据渲染为 PDF |
-| **document → table** | camelot | INFERRED | PDF 表格提取 |
-| **vector → markup** | 内嵌 | LOSSLESS | SVG 嵌入 HTML |
+| 转换方向 | 实现 | 损失档位 | 说明 |
+|---------|------|---------|------|
+| **vector → raster** | resvg-py / resvg / cairosvg | STRUCTURAL | SVG 栅格化 |
+| **vector → markup** | 内置 | LOSSLESS | SVG 嵌入 HTML |
+| **document → raster** | PyMuPDF | STRUCTURAL | PDF 渲染成图 |
+| **document → markup** | PyMuPDF | INFERRED | PDF 抽文本，按字号推断标题 |
+| **document → table** | pdfplumber | INFERRED | PDF 表格提取（取第一个表格） |
+| **markup → document** | PyMuPDF | STRUCTURAL | 文档树排版成 PDF |
+| **raster → document** | PyMuPDF | LOSSLESS | 每图一页嵌入 PDF |
+| **table → document** | PyMuPDF | LOSSLESS | 表格渲染为 PDF |
+| **table → markup** | 内置 | LOSSLESS | 渲染成 Markdown / HTML 表格 |
+| **table → tree** | 内置 | LOSSLESS | 每行一个对象 |
+| **tree → table** | 内置 | STRUCTURAL | 仅限对象数组，嵌套值序列化为 JSON 字符串 |
+| **tree → markup** | 内置 | LOSSLESS | JSON/YAML 渲染成可读文档 |
+| **media → raster** | ffmpeg | LOSSLESS | 截取封面帧 |
+| **raster → media** | ffmpeg | LOSSLESS | 图片序列 / 动图合成视频 |
 
-跨域桥会自动在路径规划时被考虑，使得原本不可达的转换成为可能。
+两端的域都有可用插件时，桥才进图。表里的档位是桥本身的损失，整条路径取各边最差的一档，
+比如 PDF→JPEG：桥是 STRUCTURAL，JPEG 写出是 LOSSY，整条路径记 STRUCTURAL。
+
+**位图 → 矢量（描摹）尚未实现**：PNG→SVG 目前没有路径，设计在 `feature/raster-to-vector` 分支。
 
 ## 限制
 
-1. **不可逆转换不承诺往返**：位图→矢量、PDF→DOCX 这类会标 `INFERRED`，转回去得不到原文件。
-2. **外部引擎失败自动回退**：FFmpeg 崩了会回退到备用方案（如果可用）。
-3. **大文件内存保护**：文档域自动检测内存压力，超过 500MB 时启用流式处理或拒绝加载。
-4. **线程安全**：`Converter` 实例现在是线程安全的，可在多线程环境中共享使用。
+1. **不可逆转换不承诺往返**：PDF→DOCX、PDF→Markdown 这类标 `INFERRED`，转回去得不到原文件。
+2. **外部引擎失败不回退**：FFmpeg、LibreOffice 等子进程失败时直接报错并附上引擎输出，
+   不会换编码器或换引擎重试。SVG 渲染器按优先级选第一个可用的（resvg-py > resvg > cairosvg），
+   选中的失败了也不会换下一个。
+3. **输入大小上限**：非音视频输入上限 1 GiB，超过直接拒绝，没有流式处理。文档类会把
+   整棵文档树读进内存，大文件的内存占用可能是文件大小的数倍。音视频交给 ffmpeg 流式处理，不受此限。
+4. **并发**：`Converter` 内部没有加锁，没有验证过多线程共享一个实例。`JobQueue`、GUI、
+   Web UI 都是每个任务新建一个 `Converter()`（约 0.1ms），自己写并发代码时照这个做。
+5. **扫描件没有 OCR**：没有文本层的 PDF 转 Word / Markdown 会被拒绝，并提示先做 OCR 或转成图片。
 
 ## 扩展
 
-添加新格式只需一个插件文件：
+加一个格式要做三步：
 
-```python
-# convcore/plugins/my_format.py
-from convcore.registry import register
-from convcore.types import Raster
+1. 在 `convcore/plugins/` 下写插件，类上加 `@register`：
 
-@register
-class MyFormatPlugin:
-    domain = "raster"
-    reads = ["image/x-custom"]
-    writes = ["image/x-custom"]
-    
-    def parse(self, path):
-        data = path.read_bytes()
-        # 解析逻辑
-        return Raster(width=..., height=..., pixels=...)
-    
-    def write(self, ir, out, **opts):
-        # 序列化逻辑
-        out.write_bytes(...)
-```
+   ```python
+   # convcore/plugins/my_format.py
+   from PIL import Image
 
-重启后自动加入格式图，`custom → JPEG` 这类路径立刻可用。
+   from ..ir.raster import Frame, Raster
+   from ..registry import register
+   from ..types import Resource, caps
+
+   @register
+   class MyFormatCodec:
+       name = "my-format"
+       domain = "raster"
+       reads = caps("image/x-myformat")
+       writes = caps("image/x-myformat")
+
+       def parse(self, resources, options):
+           img = decode(resources[0].read_bytes())      # 你的解码逻辑，返回 PIL Image
+           return Raster(frames=[Frame(img)], source_type="image/x-myformat")
+
+       def write(self, ir, target, options):
+           data = encode(ir.primary.image)              # 你的编码逻辑
+           return [Resource(media_type=target, data=data)]
+   ```
+
+2. 把模块名加进 `convcore/plugins/__init__.py` 的 `_MODULES`。插件包不会自动扫描目录，
+   不登记就不会被导入。
+3. 在 `convcore/formats.py` 的 `_TABLE` 登记 MIME、域、扩展名和显示名。不登记的话
+   认不出 `.myformat` 源文件（魔数没结论时靠扩展名回退）、CLI 解析不了 `-t myformat`、
+   产物也会叫 `.bin`。有魔数的格式再在 `convcore/sniff.py` 里加识别。
+
+之后经由 raster 枢纽的路径（MyFormat → JPEG、PNG → MyFormat、MyFormat → PDF…）自动可用。
+完整可运行的例子见 `examples/custom_plugin.py`。
 
 ## 安全
 
@@ -281,6 +344,8 @@ class MyFormatPlugin:
 - **资源限制**：子进程超时 600s，stderr 限制 64KB，stdout 限制 8MB
 - **临时文件清理**：异常退出时自动清理临时目录
 - **输出覆盖保护**：默认拒绝覆盖已存在文件
+- **本地 Web UI 防护**（`convcore ui`）：只监听 127.0.0.1，接口要带随机 token，
+  校验 Origin，并且只接受 `127.0.0.1` / `localhost` 作为 Host（防 DNS rebinding）
 
 详细评审见 `SECURITY_REVIEW.md`。
 

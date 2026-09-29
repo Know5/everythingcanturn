@@ -1,273 +1,131 @@
-"""自定义插件示例：演示如何添加新格式支持。"""
+"""自定义插件示例：给引擎加一个新格式，并真的跑通转换。
 
+演示用的 CCDEMO 是虚构的位图格式：8 字节魔数 + 宽高（各 4 字节大端）+ 原始 RGB 像素。
+插件只声明「能把 CCDEMO 解码成 raster IR、能把 raster IR 编码成 CCDEMO」，
+经由它的多跳路径（CCDEMO→JPEG、PNG→CCDEMO、CCDEMO→PDF…）由图搜索自动得出。
+
+这里把插件注册进一个私有 Registry，不污染全局注册表。正式加进项目要做三步：
+
+1. 在 convcore/plugins/ 下建模块，类上加 @register（convcore.registry.register）
+2. 把模块名加进 convcore/plugins/__init__.py 的 _MODULES，否则不会被导入
+3. 在 convcore/formats.py 的 _TABLE 登记 MIME、域、扩展名和显示名；
+   有魔数的格式再在 convcore/sniff.py 里加识别。不登记的话认不出 .ccdemo
+   源文件、CLI 解析不了 `-t ccdemo`，产物也只能叫 .bin（下面的输出就能看到）
+
+运行：python examples/custom_plugin.py
+"""
+
+from __future__ import annotations
+
+import struct
+import sys
+import tempfile
 from pathlib import Path
-from convcore.registry import Codec
-from convcore.types import Capability, LossTier, Resource
+from typing import Any
+
+from PIL import Image
+
+from convcore import Converter, ConversionError, ConvertRequest, Resource
+from convcore.ir.raster import Frame, Raster
+from convcore.policy import Policy, Strategy
+from convcore.registry import Registry, default_registry
+from convcore.types import caps
+
+# 路径描述里有 ⇒ 这类 GBK 编不出的符号，见 basic_conversion.py 的同名说明
+if sys.platform == "win32":
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
+DEMO_MIME = "image/x-ccdemo"
+MAGIC = b"CCDEMO01"
 
 
-# 示例 1: 简单的文本格式插件
-class MarkdownCodecExample:
-    """Markdown 插件示例（实际项目中已有更完整的实现）。"""
+class DemoCodec:
+    """CCDEMO 编解码器。结构满足 convcore.registry.Codec 协议。"""
 
-    name = "markdown-example"
-    domain = "markup"
-
-    reads = (
-        Capability("text/markdown", LossTier.LOSSLESS, time_cost=0.5),
-    )
-
-    writes = (
-        Capability("text/markdown", LossTier.LOSSLESS, time_cost=0.5),
-    )
+    name = "ccdemo"
+    domain = "raster"
+    reads = caps(DEMO_MIME)  # 默认 LOSSLESS、time_cost=1.0
+    # 写出也声明 LOSSLESS：对 RGB 源成立。带透明的源会丢 alpha，这类内容相关的
+    # 降级不改静态声明，而是在 write 里记进 policy，用户从 warnings 里看到
+    writes = caps(DEMO_MIME)
 
     @staticmethod
     def available() -> tuple[bool, str]:
-        """检查插件依赖是否满足。"""
-        # Markdown 不需要外部依赖
+        # 依赖不就绪时返回 (False, 原因)：插件不进图，doctor 会显示原因
         return True, ""
 
-    def parse(self, resources: list[Resource], options: dict):
-        """读取 Markdown 文件，解析为 DocTree IR。"""
-        from convcore.ir.markup import DocTree, Block, PARAGRAPH
+    def parse(self, resources: list[Resource], options: dict[str, Any]) -> Raster:
+        data = resources[0].read_bytes()
+        if not data.startswith(MAGIC) or len(data) < 16:
+            raise ConversionError("不是 CCDEMO 文件：魔数不对")
+        w, h = struct.unpack(">II", data[8:16])
+        pixels = data[16:]
+        if len(pixels) != w * h * 3:
+            raise ConversionError(f"CCDEMO 像素数据长度不符：期望 {w * h * 3}，实际 {len(pixels)}")
+        img = Image.frombytes("RGB", (w, h), pixels)
+        return Raster(frames=[Frame(img)], source_type=DEMO_MIME)
 
-        path = resources[0].path
-        text = path.read_text(encoding="utf-8")
-
-        # 简化示例：只按段落分割
-        blocks = []
-        for para in text.split("\n\n"):
-            if para.strip():
-                blocks.append(Block(kind=PARAGRAPH, text=para.strip()))
-
-        return DocTree(blocks=blocks)
-
-    def write(self, ir, target: str, options: dict) -> list[Resource]:
-        """将 DocTree IR 写入 Markdown 文件。"""
-        from convcore.ir.markup import DocTree
-
-        tmp = options.get("_tmp")
-        out = tmp / "output.md"
-
-        lines = []
-        for block in ir.blocks:
-            # 简化示例：每个块一段
-            lines.append(block.text)
-            lines.append("")
-
-        out.write_text("\n".join(lines), encoding="utf-8")
-
-        return [Resource(media_type=target, path=out)]
-
-
-# 示例 2: 需要外部依赖的插件
-class CustomImageCodecExample:
-    """自定义图片格式插件示例。"""
-
-    name = "custom-image"
-    domain = "raster"
-
-    reads = (
-        Capability("image/x-custom", LossTier.LOSSLESS, time_cost=2.0),
-    )
-
-    writes = (
-        Capability("image/x-custom", LossTier.LOSSLESS, time_cost=2.0),
-    )
-
-    @staticmethod
-    def available() -> tuple[bool, str]:
-        """检查是否安装了假想的 customimage 库。"""
-        try:
-            import customimage  # 假想的外部库
-            return True, ""
-        except ImportError:
-            return False, "缺少 customimage 库，运行 pip install customimage"
-
-    def parse(self, resources: list[Resource], options: dict):
-        """读取自定义格式图片。"""
-        import customimage
-        from convcore.ir.raster import Raster, Frame
-
-        path = resources[0].path
-
-        # 假设库返回 PIL Image
-        img = customimage.load(path)
-
-        return Raster(
-            frames=[Frame(image=img, duration=0)],
-            metadata={"format": "custom"},
-        )
-
-    def write(self, ir, target: str, options: dict) -> list[Resource]:
-        """写入自定义格式图片。"""
-        import customimage
-        from convcore.ir.raster import Raster
-
-        tmp = options.get("_tmp")
-        out = tmp / "output.custom"
-
-        # 取首帧
-        frame = ir.frames[0]
-
-        # 保存
-        customimage.save(out, frame.image, quality=options.get("quality", 95))
-
-        return [Resource(media_type=target, path=out)]
-
-
-# 示例 3: 直接转换器（绕过枢纽）
-class DirectConverterExample:
-    """直接转换器示例：PNG → JPEG 优化路径。"""
-
-    name = "png-jpeg-direct"
-
-    # 直接转换不需要 domain
-    direct = (
-        (
-            "image/png",  # 源格式
-            "image/jpeg",  # 目标格式
-            Capability("image/jpeg", LossTier.LOSSY, time_cost=0.8, fidelity=0.95),
-        ),
-    )
-
-    @staticmethod
-    def available() -> tuple[bool, str]:
-        """检查 Pillow 是否可用。"""
-        try:
-            import PIL
-            return True, ""
-        except ImportError:
-            return False, "缺少 Pillow"
-
-    def convert(self, resources: list[Resource], target: str, options: dict) -> list[Resource]:
-        """直接转换 PNG → JPEG，跳过 Raster IR。"""
-        from PIL import Image
-
-        src = resources[0].path
-        tmp = options.get("_tmp")
-        out = tmp / "output.jpeg"
-
-        img = Image.open(src)
-        if img.mode == "RGBA":
-            # JPEG 不支持透明，合成白底
-            bg = Image.new("RGB", img.size, (255, 255, 255))
-            bg.paste(img, mask=img.split()[3])
-            img = bg
-        elif img.mode != "RGB":
+    def write(self, ir: Raster, target: str, options: dict[str, Any]) -> list[Resource]:
+        # _policy 由执行器注入。表达不了的特性要记下来，用户会在 warnings 里看到
+        pol: Policy = options.get("_policy") or Policy()
+        if len(ir.frames) > 1:
+            pol.note("动画", Strategy.DROP, f"CCDEMO 只存单帧，丢弃其余 {len(ir.frames) - 1} 帧")
+        img = ir.primary.image
+        if img.mode != "RGB":
+            if ir.has_alpha:
+                pol.note("透明通道", Strategy.DROP, "CCDEMO 不支持透明，已丢弃 alpha")
             img = img.convert("RGB")
-
-        img.save(out, "JPEG", quality=options.get("quality", 85))
-
-        return [Resource(media_type=target, path=out)]
+        header = MAGIC + struct.pack(">II", *img.size)
+        return [Resource(media_type=target, data=header + img.tobytes())]
 
 
-# 如何注册插件
-def register_custom_plugins():
-    """将自定义插件注册到系统。"""
-    from convcore.registry import Registry
-
-    # 创建注册表
-    registry = Registry()
-
-    # 手动注册插件实例
-    # registry.register_codec(MarkdownCodecExample())
-    # registry.register_codec(CustomImageCodecExample())
-    # registry.register_direct(DirectConverterExample())
-
-    # 或者使用装饰器（需要在模块顶层）
-    # from convcore.registry import register
-    #
-    # @register
-    # class MyPlugin:
-    #     ...
-
-    print("自定义插件注册完成")
+def build_converter() -> Converter:
+    """内置插件 + DemoCodec 组成的私有注册表。"""
+    reg = Registry()
+    for plugin in default_registry().plugins:
+        reg.add(plugin)
+    reg.add(DemoCodec())
+    return Converter(reg)
 
 
-# 使用自定义插件
-def use_custom_plugin():
-    """使用自定义插件进行转换。"""
-    from convcore import Converter
+def main() -> None:
+    conv = build_converter()
 
-    # 创建转换器时会自动扫描所有已注册插件
-    conv = Converter()
+    targets = conv.targets_for(DEMO_MIME)
+    print(f"CCDEMO 可转成 {len(targets)} 种格式，例如：")
+    for mt in ("image/jpeg", "image/webp", "application/pdf"):
+        if mt in targets:
+            print(f"  {mt:18} {targets[mt].loss.label:8} {targets[mt].describe()}")
 
-    # 如果插件已注册，路径图会自动包含新格式
-    # result = conv.convert("file.custom", "output.png")
+    with tempfile.TemporaryDirectory() as d:
+        work = Path(d)
+        src = work / "logo.png"
+        Image.new("RGBA", (48, 32), (30, 120, 220, 255)).save(src)
 
-    print("自定义插件使用示例完成")
+        # PNG → CCDEMO（带 alpha，会记一条降级告警）
+        res = conv.convert(
+            ConvertRequest(
+                inputs=[Resource(media_type="image/png", path=src, name=src.name)],
+                target=DEMO_MIME,
+            )
+        )
+        demo = res.outputs[0]
+        print(f"\nPNG → CCDEMO：{len(demo.read_bytes())} 字节，产物名 {demo.name}")
+        print(f"  路径 {res.path_desc}，告警 {res.warnings}")
 
-
-# 插件开发指南
-"""
-## 插件开发最佳实践
-
-### 1. 命名约定
-- 插件文件名：描述性的 snake_case，如 `my_format.py`
-- 类名：PascalCase + Codec/Converter 后缀
-- name 属性：kebab-case，如 `my-format`
-
-### 2. 依赖管理
-- 在 available() 中检查外部依赖
-- 返回 (False, "缺少 xxx，安装方法...") 提供清晰指引
-- 将可选依赖添加到 pyproject.toml 的对应 extra
-
-### 3. 错误处理
-- parse/write 中抛出具体的异常（ConversionError）
-- 提供有用的错误信息（文件路径、失败原因）
-- 不要吞掉底层库的异常，让调试信息传递上来
-
-### 4. 损失等级标注
-- COPY: 字节完全相同（同格式同参数）
-- LOSSLESS: 信息完整但编码不同（PNG ↔ BMP）
-- LOSSY: 有损但视觉/语义可接受（PNG → JPEG）
-- STRUCTURAL: 结构简化（DOCX → TXT）
-- INFERRED: 需要推断补全（TXT → DOCX）
-
-### 5. 性能考虑
-- time_cost 基于 1 核 3GHz 处理 1MB 文件的秒数
-- 大文件考虑流式处理，避免一次性加载到内存
-- 使用 _tmp 目录存放中间文件
-
-### 6. 测试覆盖
-- 至少一个往返测试（A → B → A）
-- 边界情况：空文件、单像素图、超长文本
-- 错误情况：损坏文件、不支持的子格式
-
-### 7. 元数据处理
-- 尽量保留源文件的元数据（EXIF、标题、作者）
-- IR 的 metadata 字段用于传递格式特定信息
-- 写入时从 IR.metadata 恢复元数据
-
-### 8. 多帧/多页处理
-- 图片：ir.frames 列表存放所有帧
-- 文档：ir.pages 列表存放页面信息
-- 表格：ir.sheets 列表存放多张表
-- 写入时处理 primary 属性（首帧/首页/首表）
-
-### 9. 选项传递
-- options 字典包含用户指定的参数
-- 标准选项名：quality, width, height, preset
-- 不认识的选项直接忽略（不要报错）
-
-### 10. 文档规范
-- 模块 docstring 说明插件支持的格式和用途
-- 复杂的格式特性在注释中说明
-- 如果有已知限制，在 available() 返回的消息中说明
-"""
+        # CCDEMO → JPEG：图搜索自动走 CCDEMO → [raster] → JPEG
+        res2 = conv.convert(
+            ConvertRequest(inputs=[demo], target="image/jpeg"),
+            persist_dir=work,
+        )
+        jpg = res2.outputs[0]
+        with Image.open(jpg.path) as im:
+            print(f"CCDEMO → JPEG：{im.format} {im.size}，损失 {res2.loss.label}")
 
 
 if __name__ == "__main__":
-    print("=== 自定义插件示例 ===\n")
-
-    # 检查示例插件是否可用
-    plugin = MarkdownCodecExample()
-    avail, msg = plugin.available()
-    print(f"MarkdownCodecExample: {'可用' if avail else f'不可用 - {msg}'}")
-
-    plugin2 = CustomImageCodecExample()
-    avail2, msg2 = plugin2.available()
-    print(f"CustomImageCodecExample: {'可用' if avail2 else f'不可用 - {msg2}'}")
-
-    print("\n插件示例完成！")
-    print("提示：将插件类放入 convcore/plugins/ 并用 @register 装饰即可自动注册。")
+    main()

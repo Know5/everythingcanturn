@@ -118,84 +118,86 @@ def convert_image(
 新格式插件的标准流程：
 
 1. **确认格式归属**：确定格式属于哪个域（raster/media/document...）
-2. **创建插件文件**：在 `convcore/plugins/` 下创建 `.py` 文件
-3. **实现协议**：实现 `Codec` 或 `DirectConverter` 接口
-4. **声明能力**：在 `reads` 和 `writes` 中列出支持的 MIME 类型
-5. **可选依赖**：如果需要外部库，在 `pyproject.toml` 添加到对应 extra
-6. **可用性检查**：实现 `available()` 方法检查依赖是否就绪
-7. **编写测试**：在 `tests/` 下添加往返测试和边界测试
+2. **创建插件文件**：在 `convcore/plugins/` 下创建 `.py` 文件，插件类加 `@register`
+3. **登记模块**：把模块名加进 `convcore/plugins/__init__.py` 的 `_MODULES`（不会自动扫描目录）
+4. **登记格式**：在 `convcore/formats.py` 的 `_TABLE` 加 MIME、域、扩展名、显示名；
+   有魔数的格式在 `convcore/sniff.py` 加识别。否则认不出源文件、CLI 解析不了目标名
+5. **声明能力**：`reads` / `writes` 用 `caps(...)` 声明（`convcore.types`）
+6. **可选依赖**：如果需要外部库，在 `pyproject.toml` 添加到对应 extra，并实现 `available()`
+7. **编写测试**：在 `tests/` 下添加往返测试和失败路径测试
 8. **更新文档**：在 README 的格式列表中补充新格式
 
-插件模板：
+插件模板（协议定义见 `convcore/registry.py` 的 `Codec`；可运行的完整例子见
+`examples/custom_plugin.py`）：
 
 ```python
 """MyFormat 插件：读写 image/x-myformat。"""
 
-from pathlib import Path
-from convcore.ir.raster import Raster
-from convcore.types import Capability, LossTier
+from __future__ import annotations
 
-name = "myformat"
-domain = "raster"
+from typing import Any
 
-reads = (
-    Capability("image/x-myformat", LossTier.LOSSLESS, time_cost=1.0),
-)
+from ..ir.raster import Frame, Raster
+from ..registry import register
+from ..types import ConversionError, Resource, caps
 
-writes = (
-    Capability("image/x-myformat", LossTier.LOSSLESS, time_cost=1.0),
-)
 
-def available() -> tuple[bool, str]:
-    """检查依赖是否就绪。"""
-    try:
-        import myformat_lib
+@register
+class MyFormatCodec:
+    name = "myformat"
+    domain = "raster"
+    reads = caps("image/x-myformat")
+    writes = caps("image/x-myformat")
+
+    @staticmethod
+    def available() -> tuple[bool, str]:
+        """依赖不就绪时插件不进图，原因显示在 convcore doctor 里。"""
+        try:
+            import myformat_lib  # noqa: F401
+        except ImportError:
+            return False, "缺少 myformat-lib，安装后可读写 MyFormat"
         return True, ""
-    except ImportError:
-        return False, "缺少 myformat-lib，安装后可读写 MyFormat"
 
-def parse(resources, options) -> Raster:
-    """解码 MyFormat → Raster IR。"""
-    import myformat_lib
-    path = resources[0].path
-    data = myformat_lib.load(path)
-    return Raster(
-        frames=[...],
-        metadata={...},
-    )
+    def parse(self, resources: list[Resource], options: dict[str, Any]) -> Raster:
+        import myformat_lib
 
-def write(ir: Raster, target, options) -> list:
-    """编码 Raster IR → MyFormat。"""
-    import myformat_lib
-    from convcore.types import Resource
-    tmp = options.get("_tmp")
-    out = tmp / "output.myformat"
-    myformat_lib.save(out, ir.frames[0].image)
-    return [Resource(media_type=target, path=out)]
+        try:
+            img = myformat_lib.load(resources[0].read_bytes())  # 返回 PIL Image
+        except myformat_lib.Error as exc:
+            raise ConversionError(f"MyFormat 解码失败：{exc}") from exc
+        return Raster(frames=[Frame(img)], source_type="image/x-myformat")
+
+    def write(self, ir: Raster, target: str, options: dict[str, Any]) -> list[Resource]:
+        import myformat_lib
+
+        # 需要落盘时写进 options["_tmp"]（执行器管理的工作目录），不要写 CWD
+        return [Resource(media_type=target, data=myformat_lib.dump(ir.primary.image))]
 ```
 
 测试模板：
 
 ```python
-def test_myformat_roundtrip(tmp_path):
-    """MyFormat 往返测试：PNG → MyFormat → PNG。"""
-    from convcore import Converter
-    
-    conv = Converter()
-    
-    # 准备测试图片
-    original = create_test_image(tmp_path / "test.png")
-    
-    # 转换到 MyFormat
-    step1 = conv.convert(original, "image/x-myformat")
-    assert step1.exists()
-    
-    # 转回 PNG
-    step2 = conv.convert(step1, "image/png")
-    
-    # 验证像素一致性
-    assert images_equal(original, step2, threshold=0.01)
+# tests/test_myformat.py
+from PIL import Image
+
+from convcore import convert_file
+
+from .fidelity import pixels_identical
+
+
+def test_myformat_roundtrip(samples, tmp_path):
+    """MyFormat 往返测试：PNG → MyFormat → PNG，无损路径应逐像素一致。"""
+    src = samples["png"]  # conftest.py 里的会话级合成样本
+
+    step1 = convert_file(src, "image/x-myformat", out_dir=tmp_path)
+    step2 = convert_file(step1.outputs[0].path, "png", out_path=tmp_path / "back.png")
+
+    with Image.open(src) as a, Image.open(step2.outputs[0].path) as b:
+        assert pixels_identical(a, b)
 ```
+
+有损路径改用 `tests/fidelity.py` 里的 `psnr` / `ssim` 设阈值；要表驱动地批量测格式对，
+在 `tests/test_matrix.py` 的 `CASES` 里加行。
 
 #### 运行测试
 
@@ -204,14 +206,14 @@ def test_myformat_roundtrip(tmp_path):
 pytest tests/
 
 # 运行特定测试
-pytest tests/test_images.py -k heic
+pytest tests/test_matrix.py
+pytest tests/test_sniff.py -k heic
 
 # 查看覆盖率
 pytest --cov=convcore --cov-report=html
-
-# 只运行快速测试（跳过耗时的集成测试）
-pytest -m "not slow"
 ```
+
+缺可选依赖或外部引擎（ffmpeg、soffice 等）的用例会自动跳过，用 `pytest -rs` 看跳过原因。
 
 #### 提交代码
 
