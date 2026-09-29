@@ -376,6 +376,17 @@ def make_handler(state: UiState):
 
         # ── 安全校验 ──
 
+        def _host_ok(self) -> bool:
+            """Host 必须是本机回环地址加本服务端口。
+
+            防 DNS rebinding：攻击者把自己的域名解析到 127.0.0.1 后，浏览器认为
+            页面与本服务同源，Origin 和 Host 都是攻击者域名、彼此一致，
+            _origin_ok 拦不住；首页又会吐出 token。只认回环主机名才能切断这条链。
+            """
+            port = self.server.server_address[1]
+            host = (self.headers.get("Host") or "").strip().lower()
+            return host in (f"127.0.0.1:{port}", f"localhost:{port}")
+
         def _authorized(self) -> bool:
             """token 校验 + Origin 校验。
 
@@ -421,6 +432,11 @@ def make_handler(state: UiState):
         # ── 路由 ──
 
         def do_GET(self) -> None:
+            # 必须先于首页：首页里注入了 token
+            if not self._host_ok():
+                self._err("非法 Host", 403)
+                return
+
             route = urlparse(self.path).path
 
             if route in ("/", "/index.html"):
@@ -446,7 +462,7 @@ def make_handler(state: UiState):
                 self._err("未知接口", 404)
 
         def do_POST(self) -> None:
-            if not (self._authorized() and self._origin_ok()):
+            if not (self._host_ok() and self._authorized() and self._origin_ok()):
                 self._err("未授权", 403)
                 return
 

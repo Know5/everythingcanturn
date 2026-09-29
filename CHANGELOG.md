@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Web UI (`convcore ui`) now rejects requests whose `Host` header is not
+  `127.0.0.1:<port>` or `localhost:<port>`. Previously a DNS-rebinding page could
+  read the token from `/` and call every API. See `SECURITY_REVIEW.md` (2026-09-29).
+
+### Added
+- `tests/test_webui.py`: integration tests against a real server for token, Origin and Host checks
+
 ### Changed
 - Restored `_tmp` parameter passing to fix bridge and plugin temporary directory access
 - Fixed user-specified frame rate being ignored in animated image to video conversion
