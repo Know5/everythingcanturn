@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/test_webui.py`: integration tests against a real server for token, Origin and Host checks
 
 ### Fixed
+- Web UI: a rejected POST (403) no longer resets the connection before the client reads the
+  response. The handler now reads the request body before its checks
 - Examples now perform real conversions on generated samples; previously every conversion
   call was commented out and used APIs that do not exist (`conv.convert(src, dst)`, `conv.batch`)
 - README rewritten where it disagreed with the code: Python API, CLI examples, architecture,

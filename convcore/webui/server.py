@@ -462,12 +462,15 @@ def make_handler(state: UiState):
                 self._err("未知接口", 404)
 
         def do_POST(self) -> None:
+            # 先把请求体读完再做校验：拒绝时若请求体还留在接收缓冲区，关连接会发 RST，
+            # 客户端（Windows 上尤其明显）读 403 响应时直接报连接被中止，拿不到错误信息。
+            # 上限 4MB 由 _body 保证，服务只监听回环地址。
+            body = self._body()
             if not (self._host_ok() and self._authorized() and self._origin_ok()):
                 self._err("未授权", 403)
                 return
 
             route = urlparse(self.path).path
-            body = self._body()
 
             try:
                 if route == "/api/inspect":
