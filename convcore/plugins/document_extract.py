@@ -1,11 +1,11 @@
 """document → table 跨域桥：PDF 表格提取。"""
 
-from pathlib import Path
 from typing import Any
 
 from ..ir.data import Table
 from ..ir.document import DocumentRef
 from ..types import ConversionError
+from ._scratch import workdir
 
 
 def document_to_table(
@@ -24,7 +24,7 @@ def document_to_table(
 
     source = ir.source
     if source.path is None:
-        tmp = Path(opts.get("_tmp") or ".")
+        tmp = workdir(opts)
         source.materialize(tmp)
         assert source.path is not None
 

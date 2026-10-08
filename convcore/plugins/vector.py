@@ -14,12 +14,12 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from ..policy import Policy, Strategy
 from ..registry import register
 from ..types import LossTier, MediaType, Resource, caps
+from ._scratch import workdir
 
 
 @dataclass(slots=True)
@@ -147,9 +147,8 @@ def _render_resvg(
     exe: str, doc: VectorDoc, width: int | None, height: int | None, opts: dict[str, Any]
 ) -> bytes:
     """resvg 只吃文件路径，需要临时落盘。"""
-    import tempfile
 
-    tmp = Path(opts.get("_tmp") or tempfile.mkdtemp(prefix="convcore-svg-"))
+    tmp = workdir(opts)
     src = tmp / "input.svg"
     dst = tmp / "output.png"
     src.write_bytes(doc.data)

@@ -17,6 +17,7 @@ from ..ir.document import DocumentRef
 from ..policy import Policy, Strategy
 from ..registry import register
 from ..types import Capability, ConversionError, LossTier, MediaType, Resource
+from ._scratch import workdir
 
 PDF = "application/pdf"
 
@@ -50,7 +51,7 @@ class PdfStructure:
         import pypdf
 
         pol: Policy = options.get("_policy") or Policy()
-        tmp = Path(options.get("_tmp") or ".")
+        tmp = workdir(options)
         src = ir.source.materialize(tmp)
 
         reader = pypdf.PdfReader(str(src))

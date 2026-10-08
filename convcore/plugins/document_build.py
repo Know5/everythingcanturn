@@ -32,6 +32,7 @@ from ..ir.markup import (
 )
 from ..policy import Policy, Strategy
 from ..types import ConversionError, MediaType, Resource
+from ._scratch import workdir
 
 PDF = "application/pdf"
 
@@ -204,7 +205,7 @@ def doctree_to_document(tree: DocTree, opts: dict[str, Any], pol: Policy) -> Doc
 
     import pymupdf
 
-    tmp = Path(opts.get("_tmp") or ".")
+    tmp = workdir(opts)
     dst = tmp / "built.pdf"
 
     doc = pymupdf.open()
@@ -370,7 +371,7 @@ def raster_to_document(ir, opts: dict[str, Any], pol: Policy) -> DocumentRef:
 
     import pymupdf
 
-    tmp = Path(opts.get("_tmp") or ".")
+    tmp = workdir(opts)
     dst = tmp / "images.pdf"
 
     doc = pymupdf.open()
@@ -416,7 +417,7 @@ def table_to_document(ir, opts: dict[str, Any], pol: Policy) -> DocumentRef:
     """table ⇒ document 桥的实现：Table IR 直接排成 PDF 表格。"""
     import pymupdf
 
-    tmp = Path(opts.get("_tmp") or ".")
+    tmp = workdir(opts)
     dst = tmp / "table.pdf"
 
     # ir 是 Table 对象，不是 DataFrame

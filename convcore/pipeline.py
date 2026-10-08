@@ -355,8 +355,8 @@ class Converter:
 
                 else:  # BRIDGE
                     # 桥函数可能落盘（document_build 排 PDF、vector 渲染 SVG），
-                    # 必须拿到带 _tmp 的 plugin_opts；传裸 opts 会丢工作目录，
-                    # 产物写进 CWD。
+                    # 必须拿到带 _tmp 的 plugin_opts；传裸 opts 会丢工作目录——
+                    # 产物落进兜底临时目录，_detach 搬不走，最终文件就丢了。
                     ir = self._bridge(edge.src[1], edge.dst[1], ir, plugin_opts, pol)
 
             except ConversionError:

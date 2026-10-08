@@ -13,6 +13,7 @@ from ..registry import register
 from ..types import Capability, ConversionError, LossTier, MediaType, Resource
 from . import markup_read as rd
 from . import markup_write as wr
+from ._scratch import workdir
 
 MD = "text/markdown"
 HTML = "text/html"
@@ -119,7 +120,7 @@ def pdf_to_doctree(ref, opts: dict[str, Any], pol: Policy) -> DocTree:
 
     from .document import _open_doc, parse_page_spec
 
-    tmp = opts.get("_tmp")
+    tmp = workdir(opts)
     doc = _open_doc(ref.source, tmp, opts.get("password"))
     try:
         indices = parse_page_spec(opts.get("pages"), doc.page_count)

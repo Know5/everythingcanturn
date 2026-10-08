@@ -5,6 +5,7 @@
 - P1-1  PDF 产物零 metadata（标题/作者/生产者）
 - P1-2  RGBA→PDF 丢 alpha 无告警
 - P1-4  空 DocTree 静默产出空白 PDF
+- P1-5  直接调用插件时不带 _tmp，产物落进当前目录（built.pdf 等）
 """
 
 from __future__ import annotations
@@ -128,3 +129,35 @@ def test_empty_md_file_to_pdf_reports_error(conv, tmp_path):
 
     with pytest.raises(ConversionError):
         convert_file(src, "pdf", out_dir=tmp_path, overwrite=True, converter=conv)
+
+
+# ── P1-5: 直接调用插件不得把产物写进 CWD ──
+
+
+def test_workdir_without_tmp_uses_scratch_not_cwd(tmp_path, monkeypatch):
+    """没有 _tmp 时工作目录必须是临时目录，不能是当前目录。"""
+    from convcore.plugins._scratch import workdir
+
+    monkeypatch.chdir(tmp_path)
+    got = workdir({})
+    assert got.is_dir(), "兜底目录必须先创建好再交给插件落盘"
+    assert got != tmp_path and tmp_path not in got.parents
+    assert workdir({"_tmp": str(tmp_path)}) == tmp_path
+
+
+def test_doctree_to_pdf_direct_call_leaves_cwd_clean(tmp_path, monkeypatch):
+    """不带 _tmp 直接调用桥函数：产物进临时目录，当前目录一个文件都不留。
+
+    回归：opts.get("_tmp") or "." 曾让 built.pdf 这类产物落在用户仓库根。
+    """
+    from convcore.ir.markup import PARAGRAPH, Block, DocTree, Span
+    from convcore.plugins.document_build import doctree_to_document
+    from convcore.policy import Policy
+
+    monkeypatch.chdir(tmp_path)
+    ref = doctree_to_document(
+        DocTree(blocks=[Block(kind=PARAGRAPH, spans=[Span("你好")])]), {}, Policy()
+    )
+    assert ref.source.path is not None and ref.source.path.exists()
+    assert tmp_path not in ref.source.path.parents
+    assert list(tmp_path.iterdir()) == [], "当前目录被当成了工作区"

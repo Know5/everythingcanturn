@@ -12,13 +12,13 @@ raster IR → media IR，然后由 FFmpegCodec 写出目标格式。
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from ..ir.media import MediaPlan, Stream
 from ..ir.raster import Raster
 from ..policy import Policy
 from ..types import ConversionError, Resource
+from ._scratch import workdir
 
 
 def raster_to_video(
@@ -48,8 +48,8 @@ def raster_to_video(
         else:
             fps = 25
 
-    # 获取临时目录（由 pipeline._run 传入）
-    tmp = Path(opts.get("_tmp") or ".")
+    # 临时目录：正常由 pipeline._run 通过 _tmp 注入，直接调用时 _scratch 兜底
+    tmp = workdir(opts)
 
     # 把帧序列写到临时目录
     for i, frame in enumerate(ir.frames):

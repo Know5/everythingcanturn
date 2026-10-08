@@ -31,6 +31,7 @@ from ..engines.base import DEFAULT_TIMEOUT, run
 from ..policy import Policy, Strategy
 from ..registry import register
 from ..types import Capability, ConversionError, LossTier, MediaType, Resource
+from ._scratch import workdir
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -82,7 +83,7 @@ class _SofficeCodecBase:
         """
         import uuid
 
-        tmp = Path(options.get("_tmp") or ".") / f"soffice-{uuid.uuid4().hex[:12]}"
+        tmp = workdir(options) / f"soffice-{uuid.uuid4().hex[:12]}"
         tmp.mkdir(parents=True, exist_ok=True)
         return tmp
 

@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now that image-only PDFs are detected as scanned, it would be rejected anyway
 
 ### Fixed
+- Plugins called directly (library use, debug scripts, tests) no longer write intermediates into
+  the current directory. Without `_tmp` the code fell back to `.`, so `built.pdf`, `out.pdf`,
+  `table.pdf` and `images.pdf` could land in the repo root; the fallback is now a process-level
+  scratch directory under the OS temp, removed at exit
 - Conversion lists no longer offer targets that cannot work. A sweep converting every listed
   target of 17 sample sources found 288 of 698 failing or producing empty files. Now 471 are
   listed and 461 work; the other 10 depend on content (HTML without a table → CSV) or are

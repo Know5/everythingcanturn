@@ -18,6 +18,7 @@ from ..policy import Policy, Strategy
 from ..registry import register
 from ..types import Cancelled, ConversionError, LossTier, MediaType, Resource, caps
 from ..engines import codecs as codec_tbl
+from ._scratch import workdir
 
 _VIDEO_OPTS = frozenset(
     {
@@ -94,7 +95,7 @@ class FFmpegCodec:
             raise ConversionError(
                 "音视频暂不支持多文件合并为一个输出（后续会加 concat 支持）"
             )
-        tmp = Path(options.get("_tmp") or ".")
+        tmp = workdir(options)
         return ffmpeg.analyze(resources[0], tmp)
 
     def write(
@@ -105,7 +106,7 @@ class FFmpegCodec:
         from ..formats import label_of, primary_extension
 
         pol: Policy = options.get("_policy") or Policy()
-        tmp = Path(options.get("_tmp") or ".")
+        tmp = workdir(options)
         exe = require("ffmpeg")
 
         src = ir.source.materialize(tmp)
@@ -217,7 +218,7 @@ def extract_cover_frame(
             "（只有视频、或带封面的音频才能转成图片/PDF）"
         )
 
-    tmp = Path(opts.get("_tmp") or ".")
+    tmp = workdir(opts)
     exe = require("ffmpeg")
     src = ir.source.materialize(tmp)
     dst = tmp / "frame.png"

@@ -24,6 +24,7 @@ from ..ir.document import Confidence, DocumentRef
 from ..policy import Policy, Strategy
 from ..registry import register
 from ..types import Capability, ConversionError, LossTier, MediaType, Resource
+from ._scratch import workdir
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -114,7 +115,7 @@ class PdfToWord:
         from pdf2docx import Converter as P2DConverter
 
         pol: Policy = options.get("_policy") or Policy()
-        tmp = Path(options.get("_tmp") or ".")
+        tmp = workdir(options)
         progress = options.get("_progress")
 
         src = ir.source.materialize(tmp)

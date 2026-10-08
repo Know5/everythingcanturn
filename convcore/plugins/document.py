@@ -21,6 +21,7 @@ from ..policy import Policy, Strategy
 from ..registry import register
 from ..types import Capability, ConversionError, LossTier, MediaType, Resource, caps
 from ._quiet import quiet_stderr
+from ._scratch import workdir
 
 PDF = "application/pdf"
 
@@ -195,7 +196,7 @@ class PdfCodec:
             raise ConversionError(
                 "多个 PDF 合并请用 pdf merge（转换管线是一进一出的语义）"
             )
-        tmp = Path(options.get("_tmp") or ".")
+        tmp = workdir(options)
         return analyze(resources[0], tmp, options.get("password"))
 
 
@@ -206,7 +207,7 @@ def rasterize_pdf(doc: DocumentRef, opts: dict[str, Any], pol: Policy) -> Raster
     """
     import pymupdf
 
-    tmp = Path(opts.get("_tmp") or ".")
+    tmp = workdir(opts)
     dpi = int(opts.get("dpi") or 150)
     if dpi < 36 or dpi > 900:
         raise ConversionError(f"dpi 超出合理范围（36-900）：{dpi}")
