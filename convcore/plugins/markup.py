@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ..ir.markup import DocTree
@@ -45,6 +46,24 @@ def _decode(res: Resource) -> str:
     return data.decode("utf-8", "replace")
 
 
+def _resolve_image_srcs(blocks: list, base: Path) -> None:
+    """把 Markdown/HTML 里相对路径的图片解析成绝对路径。
+
+    排版层要按路径读图片字节；不解析的话相对路径会按进程 CWD 找，找不到
+    只能留占位——转出来的 PDF 里图片全丢。data URI 与外链保持原样。
+    """
+    from ..ir.markup import IMAGE
+
+    for b in blocks:
+        if b.kind == IMAGE and b.src:
+            if not b.src.startswith(("data:", "http://", "https://")):
+                p = Path(b.src)
+                if not p.is_absolute():
+                    b.src = str(base / b.src)
+        if b.children:
+            _resolve_image_srcs(b.children, base)
+
+
 @register
 class MarkupCodec:
     name = "markup"
@@ -83,10 +102,14 @@ class MarkupCodec:
         mt = res.media_type
 
         if mt == HTML:
-            return rd.parse_html(res.read_bytes(), source_type=mt)
-        if mt == MD:
-            return rd.parse_markdown(_decode(res), source_type=mt)
-        return rd.parse_text(_decode(res), source_type=mt)
+            tree = rd.parse_html(res.read_bytes(), source_type=mt)
+        elif mt == MD:
+            tree = rd.parse_markdown(_decode(res), source_type=mt)
+        else:
+            tree = rd.parse_text(_decode(res), source_type=mt)
+        if res.path is not None:
+            _resolve_image_srcs(tree.blocks, res.path.parent)
+        return tree
 
     def write(
         self, ir: DocTree, target: MediaType, options: dict[str, Any]

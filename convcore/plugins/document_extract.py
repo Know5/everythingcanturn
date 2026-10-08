@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from ..ir.data import Table
+from ..ir.data import Sheet, Table
 from ..ir.document import DocumentRef
 from ..types import ConversionError
 from ._scratch import workdir
@@ -28,8 +28,8 @@ def document_to_table(
         source.materialize(tmp)
         assert source.path is not None
 
+    sheets: list[Sheet] = []
     with pdfplumber.open(source.path) as pdf:
-        # 尝试从每一页提取表格，返回第一个非空表格
         # pdfplumber 默认依赖线框检测表格，但很多 PDF（如 PyMuPDF/reportlab 生成的）
         # 只有文本没有线，需要指定 text-based strategy
         table_settings = {
@@ -39,12 +39,10 @@ def document_to_table(
             "min_words_horizontal": 1,
         }
 
-        for page in pdf.pages:
-            tables = page.extract_tables(table_settings=table_settings)
-            if not tables:
-                continue
-
-            for raw_table in tables:
+        for page_no, page in enumerate(pdf.pages, 1):
+            for idx, raw_table in enumerate(
+                page.extract_tables(table_settings=table_settings), 1
+            ):
                 if not raw_table:
                     continue
 
@@ -62,14 +60,22 @@ def document_to_table(
                 if len(non_empty_rows[0]) < 2:
                     continue
 
-                headers = [str(cell or f"列{i+1}").strip() for i, cell in enumerate(non_empty_rows[0])]
-                rows = []
-                for row in non_empty_rows[1:]:
-                    rows.append([str(cell or "").strip() for cell in row])
+                headers = [
+                    str(cell or f"列{i + 1}").strip()
+                    for i, cell in enumerate(non_empty_rows[0])
+                ]
+                rows = [
+                    [str(cell or "").strip() for cell in row]
+                    for row in non_empty_rows[1:]
+                ]
+                sheets.append(
+                    Sheet(columns=headers, rows=rows, name=f"p{page_no}-t{idx}")
+                )
 
-                from ..ir.data import Sheet
-                sheet = Sheet(columns=headers, rows=rows)
-                return Table(sheets=[sheet])
-
-        # 没找到任何有效表格
+    if not sheets:
         raise ConversionError(f"PDF 中未找到可提取的表格：{source.path.name}")
+    if len(sheets) > 1:
+        from ..policy import Strategy
+
+        pol.note("多表", Strategy.EMULATE, f"提取到 {len(sheets)} 张表，各占一个 sheet")
+    return Table(sheets=sheets)

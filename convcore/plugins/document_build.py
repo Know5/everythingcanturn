@@ -14,6 +14,7 @@ HTML→打印的那条路。理由：
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from ..ir.document import DocumentRef, PageInfo
 from ..ir.markup import (
     CODE,
     HEADING,
+    IMAGE,
     LIST,
     LIST_ITEM,
     PARAGRAPH,
@@ -43,7 +45,11 @@ MARGIN = 62.0
 # 字号阶梯接近 Word 默认（11pt 正文，标题逐级放大）。
 _BODY = (11.0, 4.0, 8.0)
 _STYLES = {
-    "h": {1: (22.0, 18.0, 10.0), 2: (16.0, 14.0, 8.0), 3: (13.5, 12.0, 6.0)},
+    # h4-h6 不再回退正文：压平会让 4/5/6 级标题视觉上不可分辨
+    "h": {
+        1: (22.0, 18.0, 10.0), 2: (16.0, 14.0, 8.0), 3: (13.5, 12.0, 6.0),
+        4: (12.0, 10.0, 5.0), 5: (11.5, 9.0, 5.0), 6: (11.0, 8.0, 4.0),
+    },
     "code": (9.5, 6.0, 6.0),
     "quote": (11.0, 6.0, 6.0),
 }
@@ -97,6 +103,7 @@ class _Pager:
         leading: float,
         indent: float = 0.0,
         align=0,
+        font: str = _FONT,
     ) -> float:
         """排一段文字，自动跨页，返回实际占用高度（含行距）。
         align: 0=左对齐，1=居中，2=右对齐。
@@ -129,7 +136,7 @@ class _Pager:
                 rect,
                 remaining,
                 fontsize=font_size,
-                fontname=_FONT,
+                fontname=font,
                 align=align,
             )
 
@@ -161,7 +168,7 @@ class _Pager:
                     rect,
                     chunk,
                     fontsize=font_size,
-                    fontname=_FONT,
+                    fontname=font,
                     align=align,
                 )
 
@@ -184,7 +191,7 @@ class _Pager:
                 rect,
                 chunk,
                 fontsize=font_size,
-                fontname=_FONT,
+                fontname=font,
                 align=align,
             )
 
@@ -211,8 +218,13 @@ def doctree_to_document(tree: DocTree, opts: dict[str, Any], pol: Policy) -> Doc
     doc = pymupdf.open()
     pager = _Pager(doc, pol)
 
+    styles_lost = False
+
     def render(blocks: list[Block]) -> None:
+        nonlocal styles_lost
         for b in blocks:
+            if b.kind != TABLE and any(s.bold or s.italic for s in b.spans):
+                styles_lost = True
             if b.kind == PARAGRAPH:
                 sz, before, after = _BODY
                 pager.advance(before)
@@ -227,13 +239,17 @@ def doctree_to_document(tree: DocTree, opts: dict[str, Any], pol: Policy) -> Doc
             elif b.kind == CODE:
                 sz, before, after = _STYLES["code"]
                 pager.advance(before)
-                h = pager.text_box(b.text, sz, 1.3)
+                # 纯 ASCII 代码用内置 Courier；含 CJK 时退回 china-ss
+                # （Courier 只有 Latin 字形，汉字会变 '?'）
+                font = "cour" if b.text.isascii() else _FONT
+                h = pager.text_box(b.text, sz, 1.3, font=font)
                 pager.advance(h + after)
-                pol.note(
-                    "等宽字体",
-                    Strategy.DROP,
-                    f"china-ss 无等宽变体，代码块用普通字形排",
-                )
+                if font != "cour":
+                    pol.note(
+                        "等宽字体",
+                        Strategy.DROP,
+                        "代码块含非 ASCII 字符，用普通字形排",
+                    )
             elif b.kind == QUOTE:
                 sz, before, after = _STYLES["quote"]
                 pager.advance(before)
@@ -250,7 +266,9 @@ def doctree_to_document(tree: DocTree, opts: dict[str, Any], pol: Policy) -> Doc
                 h = pager.text_box(marker + b.text, sz, 1.4, indent=10.0)
                 pager.advance(h + 4.0)
             elif b.kind == TABLE:
-                _render_table(pager, b)
+                _render_table(pager, b, pol)
+            elif b.kind == IMAGE:
+                _render_image(pager, b, pol)
             elif b.kind == RULE:
                 import pymupdf
 
@@ -264,6 +282,13 @@ def doctree_to_document(tree: DocTree, opts: dict[str, Any], pol: Policy) -> Doc
 
     render(tree.blocks)
 
+    if styles_lost:
+        pol.note(
+            "行内样式",
+            Strategy.DROP,
+            "china-ss 无粗体/斜体字形，行内强调按正体排；标题层级靠字号阶梯区分",
+        )
+
     try:
         doc.save(dst, deflate=True)
     finally:
@@ -272,55 +297,129 @@ def doctree_to_document(tree: DocTree, opts: dict[str, Any], pol: Policy) -> Doc
     return build_document_ref(dst, tree.title)
 
 
-def _render_table(pager: _Pager, table_block: Block) -> None:
-    """表格排版：逐行 insert_textbox，列宽均分。
+def _text_height(text: str, width: float, font_size: float) -> float:
+    """估算 text 在 width pt 宽、font_size 下换行后的排版高度。
 
-    简化规则：
-    - 列宽 = (页宽 - 2×边距) / 列数
-    - 行高固定 20pt（单行）
-    - 表头（第一行）加粗由字号放大 1pt 模拟
-    - 不做跨页：整表放不下就翻页
+    用 pymupdf 的字体度量而不是「每行几个字」的粗略估算——否则中文会被
+    当成半角，行高估低一半，多行单元格还是会被裁。
     """
-    if not table_block.rows:
+    import pymupdf
+
+    usable = max(10.0, width - 8.0)  # 单元格内边距
+    lines = 0
+    for para in text.splitlines() or [""]:
+        if not para:
+            lines += 1
+            continue
+        w = pymupdf.get_text_length(para, fontname=_FONT, fontsize=font_size)
+        lines += max(1, math.ceil(w / usable))
+    return max(1, lines) * font_size * 1.3 + 6.0
+
+
+def _render_image(pager: _Pager, block: Block, pol: Policy) -> None:
+    """图片块：本地文件 / data URI 嵌入；拿不到就留文本占位 + DROP 告警。
+
+    外链不下载（本项目只经 engines install 走网络）。任何失败路径都在文本层
+    留一条可检索的占位，而不是让图片静默消失。
+    """
+    import base64
+    import io
+
+    import pymupdf
+    from PIL import Image
+
+    data: bytes | None = None
+    src = block.src or ""
+    if src.startswith("data:"):
+        try:
+            data = base64.b64decode(src.split(",", 1)[1])
+        except Exception:
+            data = None
+    elif src:
+        try:
+            p = Path(src)
+            if p.is_file():
+                data = p.read_bytes()
+        except OSError:
+            data = None
+
+    label = block.alt or "未命名"
+    src_hint = f"（{Path(src).name[:60]}）" if src else ""
+    if data is None:
+        pol.note("图片", Strategy.DROP, f"图片未嵌入（{label}{src_hint}），已留文本占位")
+        pager.advance(4.0)
+        h = pager.text_box(f"[图片：{label}{src_hint}]", 10.0, 1.3)
+        pager.advance(h + 4.0)
         return
+
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            iw, ih = im.size
+    except Exception:
+        pol.note("图片", Strategy.DROP, f"无法解码图片（{label}{src_hint}），已留文本占位")
+        pager.advance(4.0)
+        h = pager.text_box(f"[图片：{label}{src_hint}]", 10.0, 1.3)
+        pager.advance(h + 4.0)
+        return
+
+    content_w = PAGE_W - 2 * MARGIN
+    scale = min(1.0, content_w / max(1, iw))  # 只缩不放
+    w, h = iw * scale, ih * scale
+    max_h = PAGE_H - 2 * MARGIN
+    if h > max_h:
+        k = max_h / h
+        w, h = w * k, max_h
+    pager.ensure_room(h + 8.0)
+    rect = pymupdf.Rect(MARGIN, pager.cursor, MARGIN + w, pager.cursor + h)
+    pager.page.insert_image(rect, stream=data)
+    pager.advance(h + 8.0)
+
+
+def _render_table(pager: _Pager, table_block: Block, pol: Policy) -> None:
+    """表格排版：逐行排、行高随内容、支持 colspan。
+
+    行高取各单元格换行后的最大高度——固定行高会把长单元格直接裁掉。
+    跨页粒度是行（每行先 ensure_room），表头不重复。rowspan 不支持：
+    IR 里有字段但排版不做跨行合并，出现时记 DROP 告警而不是错位。
+    """
+    import pymupdf
 
     rows = table_block.rows
     if not rows:
         return
 
-    # 推断列数：取第一行的单元格数量
-    ncols = len(rows[0]) if rows else 1
-
+    ncols = max((len(r) for r in rows), default=1) or 1
     col_w = (PAGE_W - 2 * MARGIN) / ncols
-    row_h = 20.0
-    table_h = len(rows) * row_h + 10.0  # 表前后留白
-
-    pager.ensure_room(table_h)
     pager.advance(5.0)
+
+    if any((cell.rowspan or 1) > 1 for row in rows for cell in row if cell):
+        pol.note(
+            "跨行合并",
+            Strategy.DROP,
+            "表格含 rowspan，按未合并单元格排（不做跨行合并）",
+        )
 
     for i, row in enumerate(rows):
         if not row:
             continue
-        y0 = pager.cursor
-        for j, cell in enumerate(row):
-            x0 = MARGIN + j * col_w
-            x1 = x0 + col_w
-            y1 = y0 + row_h
-            import pymupdf
-            rect = pymupdf.Rect(x0, y0, x1, y1)
-            # 表头单元格或第一行字号稍大
-            fs = 11.5 if (cell.header or i == 0) else 10.0
-            # Cell 的文本内容在 blocks 里
+        fs = 11.5 if (row[0].header or i == 0) else 10.0
+        cells: list[tuple[str, int, float]] = []  # (text, colspan, height)
+        j = 0
+        for cell in row:
+            span = max(1, min(cell.colspan or 1, ncols - j))
             text = " ".join(b.text for b in cell.blocks) if cell.blocks else ""
-            pager.page.insert_textbox(
-                rect,
-                text,
-                fontsize=fs,
-                fontname=_FONT,
-                align=0,
-            )
-            # 画单元格边框
+            cells.append((text, span, _text_height(text, col_w * span, fs)))
+            j += span
+        row_h = max((h for _, _, h in cells), default=16.0)
+        pager.ensure_room(row_h + 2.0)
+
+        y0 = pager.cursor
+        x = MARGIN
+        for text, span, _ in cells:
+            rect = pymupdf.Rect(x, y0, x + col_w * span, y0 + row_h)
+            pager.page.insert_textbox(rect, text, fontsize=fs, fontname=_FONT, align=0)
             pager.page.draw_rect(rect, width=0.3, color=(0.6, 0.6, 0.6))
+            x += col_w * span
         pager.advance(row_h)
 
     pager.advance(5.0)
@@ -414,58 +513,30 @@ def raster_to_document(ir, opts: dict[str, Any], pol: Policy) -> DocumentRef:
 
 
 def table_to_document(ir, opts: dict[str, Any], pol: Policy) -> DocumentRef:
-    """table ⇒ document 桥的实现：Table IR 直接排成 PDF 表格。"""
+    """table ⇒ document 桥的实现：Table IR 直接排成 PDF 表格。
+
+    多 sheet 全部导出（每张前面带 sheet 名），行高随内容换行——旧实现只排
+    首表且固定行高，长单元格被裁剪。
+    """
     import pymupdf
+
+    if not any(s.rows for s in ir.sheets):
+        raise ConversionError("空表格无法生成 PDF")
 
     tmp = workdir(opts)
     dst = tmp / "table.pdf"
 
-    # ir 是 Table 对象，不是 DataFrame
-    sheet = ir.primary
-    if not sheet.rows:
-        raise ConversionError("空表格无法生成 PDF")
-
     doc = pymupdf.open()
     pager = _Pager(doc, pol)
 
-    # 表头 + 数据行
-    headers = sheet.columns
-    ncols = len(headers)
-    nrows = len(sheet.rows) + 1  # +1 for header
-
-    col_w = (PAGE_W - 2 * MARGIN) / ncols
-    row_h = 18.0
-
-    def draw_row(y0: float, cells: list[str], is_header: bool):
-        for j, text in enumerate(cells):
-            x0 = MARGIN + j * col_w
-            x1 = x0 + col_w
-            y1 = y0 + row_h
-            rect = pymupdf.Rect(x0, y0, x1, y1)
-            fs = 11.0 if is_header else 9.5
-            pager.page.insert_textbox(
-                rect,
-                str(text),
-                fontsize=fs,
-                fontname=_FONT,
-                align=0,
-            )
-            pager.page.draw_rect(rect, width=0.3, color=(0.5, 0.5, 0.5))
-
-    # 排表头
-    pager.ensure_room(row_h + 10.0)
-    pager.advance(5.0)
-    draw_row(pager.cursor, headers, is_header=True)
-    pager.advance(row_h)
-
-    # 排数据行
-    for i, row_data in enumerate(sheet.rows):
-        needed = row_h + (5.0 if i == 0 else 0.0)
-        pager.ensure_room(needed)
-        draw_row(pager.cursor, [str(x) for x in row_data], is_header=False)
-        pager.advance(row_h)
-
-    pager.advance(5.0)
+    for si, sheet in enumerate(ir.sheets):
+        if not sheet.rows:
+            continue
+        if len(ir.sheets) > 1:
+            pager.advance(6.0)
+            h = pager.text_box(sheet.name, 12.0, 1.3)
+            pager.advance(h + 2.0)
+        _draw_data_table(pager, sheet.columns, sheet.rows)
 
     try:
         doc.save(dst, deflate=True)
@@ -473,10 +544,42 @@ def table_to_document(ir, opts: dict[str, Any], pol: Policy) -> DocumentRef:
         doc.close()
 
     if len(ir.sheets) > 1:
-        pol.note(
-            "多表",
-            Strategy.EMULATE,
-            f"源文件有 {len(ir.sheets)} 张表，仅导出首表 {sheet.name}",
-        )
+        pol.note("多表", Strategy.EMULATE, f"{len(ir.sheets)} 张表按 sheet 顺序全部导出")
 
     return build_document_ref(dst, None)
+
+
+def _draw_data_table(pager: _Pager, columns: list[str], rows: list[list[Any]]) -> None:
+    """数据域表格排版：表头 + 数据行，行高随内容。"""
+    ncols = max([len(columns)] + [len(r) for r in rows]) or 1
+    col_w = (PAGE_W - 2 * MARGIN) / ncols
+    pager.advance(5.0)
+
+    header = [str(c) for c in columns]
+    rows_out: list[tuple[list[str], float, float]] = []
+    for text_row, fs in ((header, 11.0),) + tuple(
+        ([str(x) for x in r], 9.5) for r in rows
+    ):
+        h = max((_text_height(t, col_w, fs) for t in text_row), default=14.0)
+        rows_out.append((text_row, fs, h))
+
+    for text_row, fs, row_h in rows_out:
+        pager.ensure_room(row_h + 2.0)
+        _draw_row_cells(pager, text_row, col_w, fs, row_h)
+    pager.advance(5.0)
+
+
+def _draw_row_cells(
+    pager: _Pager, cells: list[str], col_w: float, font_size: float, row_h: float
+) -> None:
+    import pymupdf
+
+    y0 = pager.cursor
+    for j, text in enumerate(cells):
+        x0 = MARGIN + j * col_w
+        rect = pymupdf.Rect(x0, y0, x0 + col_w, y0 + row_h)
+        pager.page.insert_textbox(
+            rect, text, fontsize=font_size, fontname=_FONT, align=0
+        )
+        pager.page.draw_rect(rect, width=0.3, color=(0.5, 0.5, 0.5))
+    pager.advance(row_h)
