@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
 ### Security
 - Web UI (`convcore ui`) now rejects requests whose `Host` header is not
   `127.0.0.1:<port>` or `localhost:<port>`. Previously a DNS-rebinding page could
@@ -103,5 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage reporting with pytest-cov
 - Git repository with 15+ commits tracking development progress
 
-[Unreleased]: https://github.com/Know5/everythingcanturn/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Know5/everythingcanturn/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Know5/everythingcanturn/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Know5/everythingcanturn/releases/tag/v0.1.0
