@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Incompatible subtitle streams were dropped instead of transcoded (mp4/mov → mov_text,
   WebM → webvtt, others → srt)
 - AV1 encodes lacked `-b:v 0` (so CRF was clamped) and any speed control
+- FFmpeg engine install was broken in CI: the pinned 9.0.1 build had been removed from
+  gyan.dev's package directory (HTTP 404). The pin is now the previous release (8.1.2), whose
+  URL is permanent, with the published SHA256 verified against the downloaded archive;
+  `version_url` reports the upstream release so `engines check` still shows updates
+- `puremagic>=2.0` requires Python >= 3.12, which contradicted the declared
+  `requires-python = ">=3.11"` and broke dependency installation on 3.11. The floor is now
+  `>=1.30` (verified against both 1.30 and 2.2 locally)
 
 ### Changed
 - `SvgCodec` no longer depends on a renderer: reading and writing SVG, and SVG → HTML, work

@@ -6,7 +6,9 @@ requires-python = ">=3.11"
 dependencies = [
     # The core registry and raster codecs work with these small dependencies.
     # Other domains are lazy-loaded and are available through extras below.
-    "puremagic>=2.0",
+    # puremagic 2.x 要求 Python >= 3.12；1.30 是仍支持 3.11 的最后一线。
+    # 代码只用 magic_string()，1.30 与 2.x 行为实测一致（全量测试两边都过）
+    "puremagic>=1.30",
     "pillow>=11.0",
 ]
 

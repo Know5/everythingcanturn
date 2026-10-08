@@ -51,20 +51,25 @@ class Package:
 # FFmpeg 选 essentials 而非 full：
 #   - essentials 已含 x264/x265/libvpx/libaom/lame/opus/vorbis，覆盖 Phase 3 全部需求
 #   - essentials 有 zip 版，标准库能解；full 只有 7z，要额外依赖 py7zr
-#   - 体积 106MB vs full 更大
+#   - 体积 104MB vs full 更大
 # 想要 full（硬件编码器、更多滤镜）可以 --variant full，届时需要 py7zr。
+#
+# 版本钉法：gyan.dev 只把「当前 release」放在滚动文件名（release-essentials.zip）
+# 下——内容随发版变化，哈希钉不住；上一个 release 保留在 packages/ 的固定文件名，
+# URL 永久。git master 构建只有 7z（要 py7zr），不走。所以钉上一个 release 的 zip，
+# version_url 指向上游版本号——engines check 仍会提示有更新可用。
 PACKAGES: dict[str, list[Package]] = {
     "ffmpeg": [
         Package(
             engine="ffmpeg",
-            version="9.0.1",
-            url="https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.1-essentials_build.zip",
+            version="8.1.2",
+            url="https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.2-essentials_build.zip",
             archive="zip",
-            sha256="fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
-            sha256_url="https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256",
-            version_url="https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.ver",
+            sha256="db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec",
+            sha256_url="https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.2-essentials_build.zip.sha256",
+            version_url="https://www.gyan.dev/ffmpeg/builds/release-version",
             members=("ffmpeg.exe", "ffprobe.exe"),
-            size_hint=106 * 1024 * 1024,
+            size_hint=104 * 1024 * 1024,
             license_note=(
                 "GPL 构建（含 x264/x265）。个人自用无约束；若将来要闭源分发，"
                 "需换 LGPL 构建并处理 H.264/HEVC 专利许可。"

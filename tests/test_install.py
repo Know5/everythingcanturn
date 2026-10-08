@@ -179,7 +179,10 @@ def test_manifest_pins_are_well_formed():
 
 def test_find_package_version_selection():
     assert find_package("ffmpeg") is not None
-    assert find_package("ffmpeg", "9.0.1") is not None
+    # 版本号跟随 manifest 的钉版（gyan 撤旧版后钉到上一个 release）
+    pinned = find_package("ffmpeg")
+    assert pinned is not None
+    assert find_package("ffmpeg", pinned.version) is not None
     assert find_package("ffmpeg", "0.0.0") is None
     assert find_package("nonexistent") is None
 
