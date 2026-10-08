@@ -124,3 +124,44 @@ def test_multi_sheet_table_pdf_exports_all(tmp_path):
     assert ref.source.path is not None
     text = _squeeze(_pdf_text(ref.source.path))
     assert "第一表" in text and "第二表" in text
+
+
+def test_pdf_to_markdown_keeps_tables(tmp_path):
+    """PDF→Markdown 保留表格结构，而不是把整表压成段落文本。"""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate
+    from reportlab.platypus import Table as RLTable
+
+    # reportlab 默认字体没有 CJK 字形，样本用 ASCII
+    pdf = tmp_path / "t.pdf"
+    SimpleDocTemplate(str(pdf), pagesize=A4).build(
+        [RLTable([["name", "qty"], ["apple", "3"], ["banana", "5"]])]
+    )
+    res = convert_file(pdf, "md", out_dir=tmp_path, overwrite=True)
+    text = res.outputs[0].path.read_text(encoding="utf-8")
+    assert "|" in text and "apple" in text, f"表格没有保留：{text[:200]}"
+
+
+def test_prose_pdf_is_not_mistaken_for_a_table(tmp_path):
+    """无线框的散文 PDF 不能被 text 策略误判成表格。"""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+    styles = getSampleStyleSheet()
+    pdf = tmp_path / "prose.pdf"
+    SimpleDocTemplate(str(pdf), pagesize=A4).build(
+        [
+            Paragraph(
+                "This is a normal paragraph with several words in it.",
+                styles["BodyText"],
+            ),
+            Paragraph(
+                "Another paragraph follows, also plain prose without columns.",
+                styles["BodyText"],
+            ),
+        ]
+    )
+    res = convert_file(pdf, "md", out_dir=tmp_path, overwrite=True)
+    text = res.outputs[0].path.read_text(encoding="utf-8")
+    assert "|" not in text, f"散文被误判成表格：{text[:200]}"

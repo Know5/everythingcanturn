@@ -153,8 +153,9 @@ def test_text_encoding_sniffed(tmp_path):
     "target,expect_loss",
     [
         ("html", LossTier.LOSSLESS),
-        ("docx", LossTier.LOSSLESS),
-        ("epub", LossTier.LOSSLESS),
+        # DOCX/EPUB 写侧：图片变占位、RAW 丢弃——结构性简化
+        ("docx", LossTier.STRUCTURAL),
+        ("epub", LossTier.STRUCTURAL),
         # 纯文本丢掉全部格式，是结构性损失而非「有损压缩」
         ("txt", LossTier.STRUCTURAL),
     ],

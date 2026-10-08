@@ -73,12 +73,23 @@ class PdfStructure:
         if options.get("split"):
             return self._split(reader, indices, rotate, target, tmp, pol, options)
 
-        writer = pypdf.PdfWriter()
-        for i in indices:
-            page = reader.pages[i]
-            if rotate:
-                page.rotate(rotate)
-            writer.add_page(page)
+        full_copy = (
+            len(indices) == len(reader.pages)
+            and rotate == 0
+            and not options.get("user_password")
+            and not options.get("owner_password")
+        )
+        if full_copy:
+            # 整本复制用 clone：保留书签/附件/表单。add_page 只搬页对象，
+            # 含目录的 PDF 经结构操作后目录会静默消失
+            writer = pypdf.PdfWriter(clone_from=reader)
+        else:
+            writer = pypdf.PdfWriter()
+            for i in indices:
+                page = reader.pages[i]
+                if rotate:
+                    page.rotate(rotate)
+                writer.add_page(page)
 
         if len(indices) < len(reader.pages):
             kept = ", ".join(str(i + 1) for i in indices[:10])
@@ -88,6 +99,25 @@ class PdfStructure:
                 f"仅保留第 {kept}{' 等' if len(indices) > 10 else ''} 页"
                 f"（共 {len(reader.pages)} 页）",
             )
+
+        if not full_copy:
+            lost = []
+            try:
+                if reader.outline:
+                    lost.append("书签")
+            except Exception:
+                pass
+            try:
+                if reader.attachments:
+                    lost.append("附件")
+            except Exception:
+                pass
+            if lost:
+                pol.note(
+                    "PDF 结构",
+                    Strategy.DROP,
+                    f"{'、'.join(lost)}未保留（页面选择/旋转不复制文档级结构）",
+                )
 
         self._apply_encryption(writer, options, pol)
 

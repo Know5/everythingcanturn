@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a renderer. `convcore formats` domain reaches, the desktop help panel and a new
   `convcore doctor` section report the gate state; `tests/test_raster_to_vector.py` covers
   the gate, the heuristic and the end-to-end conversions
+- PDF → Markdown keeps tables now: `find_tables` detects ruled tables first and falls back to
+  text alignment with a shape filter for line-less ones (plain prose is no longer mistaken
+  for a table), and text inside table boxes is not duplicated as paragraphs
+- PDF structure operations clone the document when it is copied whole, preserving bookmarks,
+  attachments and forms; page selection / rotation report the document-level structure they
+  drop. DocTree → PDF embeds images (local files and data URIs; a searchable placeholder is
+  left otherwise) and renders code in Courier when it is ASCII, and tables now use
+  content-based row heights with `colspan` merging (`rowspan` warns instead of misplacing)
+- `table → PDF` exports every sheet with its name, and PDF table extraction collects every
+  table across pages instead of only the first one
 
 ### Fixed
 - Vorbis quality was mapped with the LAME scale, so `quality: 100` produced the worst setting.
@@ -53,6 +63,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is 20/22, AVIF defaults to `speed=4, quality=80`
 - Media conversions pass `-map_metadata 0 -map_chapters 0` by default and clear them when
   `keep_metadata` is false
+
+- Loss tiers corrected where the writers simplify: Markdown (merged cells, cell formatting),
+  DOCX (images become placeholder text) and EPUB (images stay external references) are
+  `STRUCTURAL` instead of `LOSSLESS`. Tiers feed path ranking, so overstating them misled
+  route selection
 
 ## [0.2.0] - 2026-10-08
 

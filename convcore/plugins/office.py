@@ -52,9 +52,11 @@ class DocxCodec:
     domain = "markup"
     reads = (Capability(DOCX, LossTier.STRUCTURAL, 3.0),)
     """读入是 STRUCTURAL：DOCX 的分页、页眉页脚、批注、修订映射不进 DocTree。"""
-    # 要求有文字：原始 SVG 块塞不进 Word（见 _emit），SVG→Word 只会得到空文档
+    # 要求有文字：原始 SVG 块塞不进 Word（见 _emit），SVG→Word 只会得到空文档。
+    # 图片写成 [图片 label] 占位、RAW 丢弃——是结构性简化，不是无损
     writes = (
-        Capability(DOCX, LossTier.LOSSLESS, 4.0, frozenset({"title"}), requires=frozenset({"text"})),
+        Capability(DOCX, LossTier.STRUCTURAL, 4.0, frozenset({"title"}),
+                   requires=frozenset({"text"}), fidelity=0.85),
     )
 
     def available(self) -> tuple[bool, str]:
@@ -467,8 +469,10 @@ class EpubCodec:
     name = "epub"
     domain = "markup"
     reads = (Capability(EPUB, LossTier.STRUCTURAL, 3.0),)
+    # 图片目前只写外链不嵌资源，与 DOCX 写侧同理：结构性简化
     writes = (
-        Capability(EPUB, LossTier.LOSSLESS, 3.0, frozenset({"title", "author", "lang"})),
+        Capability(EPUB, LossTier.STRUCTURAL, 3.0,
+                   frozenset({"title", "author", "lang"}), fidelity=0.85),
     )
 
     def available(self) -> tuple[bool, str]:
