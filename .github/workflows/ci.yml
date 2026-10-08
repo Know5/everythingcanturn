@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # 分支上直接跑：修复分支曾长期不跑 CI（main 落后 6 个提交时才被发现）
+    branches: [main, "fix/**", "feature/**"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:

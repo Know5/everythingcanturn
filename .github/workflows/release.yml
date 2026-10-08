@@ -1,0 +1,50 @@
+name: Release
+
+# tag 推送即发布：构建 Windows 可执行包、冒烟验证、创建 GitHub Release。
+# 用内置 token（permissions: contents: write）而不是本地 gh 登录——
+# 发布产物由此流水线产出，本地不需要装打包环境。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        # 与 ci.yml 相同的从零安装；pyinstaller 钉在 requirements.lock.txt 的版本
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[all,dev]" pyinstaller==6.16.0
+
+      - name: Build executable
+        run: python -m PyInstaller convcore.spec
+
+      - name: Smoke test packaged build
+        # 打出来的包必须真能转换，而不是只有 exe 存在
+        shell: pwsh
+        run: |
+          ./dist/convcore/convcore-cli.exe doctor
+          python -c "from PIL import Image; Image.new('RGB', (64, 64), 'red').save('t.png')"
+          ./dist/convcore/convcore-cli.exe convert t.png -t webp -o t.webp --overwrite
+          if (-not (Test-Path t.webp)) { throw "packaged build cannot convert" }
+
+      - name: Archive
+        shell: pwsh
+        run: Compress-Archive -Path dist/convcore -DestinationPath "convcore-$env:GITHUB_REF_NAME-win64.zip"
+
+      - name: Create GitHub release
+        # --notes-from-tag：发布说明用附注标签的消息（与 v0.1.0 的写法一致）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ github.ref_name }} "convcore-${{ github.ref_name }}-win64.zip" --title "convcore ${{ github.ref_name }}" --notes-from-tag
