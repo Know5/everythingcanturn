@@ -118,7 +118,9 @@ def analyze(res: Resource, tmp: Path) -> MediaPlan:
     )
 
 
-def _quality_args(encoder: str, kind: str, opts: dict[str, Any]) -> list[str]:
+def _quality_args(
+    encoder: str, kind: str, opts: dict[str, Any], *, channels: int | None = None
+) -> list[str]:
     """把统一的 quality（1-100，越大越好）翻译成各编码器的参数。
 
     这层映射是必要的：CRF 是 0-51 越小越好，qscale 是 1-31 越小越好，
@@ -135,15 +137,26 @@ def _quality_args(encoder: str, kind: str, opts: dict[str, Any]) -> list[str]:
 
     q = opts.get("quality")
     if q is None:
-        # 各编码器的合理默认
+        # 各编码器的合理默认（高质量线；用户显式 quality 时按下方映射覆盖）
         if style == "crf":
-            return ["-crf", "23"]
+            # x265 的 CRF 刻度比 x264 高约 4-5 档（28≈23），默认分开给
+            return ["-crf", "22" if encoder == "libx265" else "20"]
         if style == "crf-vp9":
             return ["-crf", "31", "-b:v", "0"]
+        if style == "crf-av1":
+            return ["-crf", "30", "-b:v", "0"]
         if style == "bitrate":
-            return [f"-b:{stream_flag}", "192k" if kind == "audio" else "2M"]
+            if kind == "audio":
+                # 5.1 用 192k 会明显浑浊：默认按声道数给
+                return [f"-b:{stream_flag}", "448k" if (channels or 2) > 2 else "192k"]
+            return [f"-b:{stream_flag}", "2M"]
+        if style == "qscale":
+            # mpeg4（AVI）不指定就是 ffmpeg 默认约 200kbps，远低于高质量线
+            return [f"-q:{stream_flag}", "3"]
         if style == "qscale-audio":
             return [f"-q:{stream_flag}", "2"]
+        if style == "qscale-vorbis":
+            return [f"-q:{stream_flag}", "6"]
         return []
 
     q = max(1, min(100, int(q)))
@@ -159,6 +172,12 @@ def _quality_args(encoder: str, kind: str, opts: dict[str, Any]) -> list[str]:
     if style == "qscale-audio":
         # LAME/Vorbis 的 V 值：0 最好，9 最差
         return [f"-q:{stream_flag}", str(round(9 - (q / 100) * 9))]
+    if style == "crf-av1":
+        # AV1 需 -b:v 0 才是恒定质量（否则 CRF 会被码率上限钳制）
+        return ["-crf", str(round(51 - (q / 100) * 51)), "-b:v", "0"]
+    if style == "qscale-vorbis":
+        # vorbis 的 -q:a 是 -1..10 越大越好（与 LAME 相反），quality 100 → 10
+        return [f"-q:{stream_flag}", str(round(-1 + (q / 100) * 11))]
     if style == "bitrate":
         if kind == "audio":
             # 64k~320k 线性映射
@@ -197,6 +216,7 @@ def build_command(
     dst: Path,
     plan: MediaPlan,
     decision: RemuxDecision,
+    container: str,
     opts: dict[str, Any],
 ) -> list[str | Path]:
     """构造 ffmpeg 命令行。
@@ -223,13 +243,22 @@ def build_command(
         if a.action != "drop":
             cmd += ["-map", f"0:{a.stream_index}"]
 
+    # 元数据与章节默认透传（标题、语言、章节表）；keep_metadata=False 时清空。
+    # 不加这两行时 ffmpeg 只带部分全局元数据，章节整段丢失。
+    keep_meta = "0" if opts.get("keep_metadata", True) else "-1"
+    cmd += ["-map_metadata", keep_meta, "-map_chapters", keep_meta]
+
     # 按流类型给编码参数。用 -c:v / -c:a 而不是逐流指定，因为同类流通常同处理。
     video_actions = [a for a in decision.actions if a.kind == "video" and a.action != "drop"]
     audio_actions = [a for a in decision.actions if a.kind == "audio" and a.action != "drop"]
     sub_actions = [a for a in decision.actions if a.kind == "subtitle" and a.action != "drop"]
 
     if video_actions:
-        if all(a.action == "copy" for a in video_actions) and not scale:
+        if (
+            all(a.action == "copy" for a in video_actions)
+            and not scale
+            and not opts.get("fps")
+        ):
             cmd += ["-c:v", "copy"]
         else:
             enc = next(
@@ -243,6 +272,9 @@ def build_command(
                 # 只管缩放的情况；PDF 页渲染（1240×1755）、裁过的截图这类奇数尺寸
                 # 源会直接报错。裁掉最后一行/列像素，偶数尺寸时是空操作。
                 filters.append("crop=trunc(iw/2)*2:trunc(ih/2)*2")
+            if fps := opts.get("fps"):
+                # fps 用滤镜而不是 -r：与 scale 串联时时间基转换更稳
+                filters.append(f"fps={int(fps)}")
             if filters:
                 cmd += ["-vf", ",".join(filters)]
             if enc in ("libx264", "libx265"):
@@ -254,8 +286,10 @@ def build_command(
                 # 不指定时 ffmpeg 给带透明的源（SVG 渲染图、透明 PNG）选 gbrap，
                 # libvpx 拒绝打开编码器，SVG→WebM 直接失败
                 cmd += ["-pix_fmt", str(opts.get("pix_fmt", "yuv420p"))]
-            if fps := opts.get("fps"):
-                cmd += ["-r", str(fps)]
+            if enc == "libaom-av1":
+                cmd += ["-cpu-used", str(opts.get("cpu_used", 4)), "-row-mt", "1"]
+            if enc == "libsvtav1":
+                cmd += ["-preset", str(opts.get("svt_preset", 6))]
 
     if audio_actions:
         if all(a.action == "copy" for a in audio_actions):
@@ -263,14 +297,27 @@ def build_command(
         else:
             enc = next((a.encoder for a in audio_actions if a.encoder), "aac")
             cmd += ["-c:a", enc]
-            cmd += _quality_args(enc, "audio", opts)
+            primary_audio = plan.primary_audio
+            cmd += _quality_args(
+                enc, "audio", opts,
+                channels=primary_audio.channels if primary_audio else None,
+            )
             if ar := opts.get("sample_rate"):
                 cmd += ["-ar", str(ar)]
             if ac := opts.get("channels"):
                 cmd += ["-ac", str(ac)]
 
     if sub_actions:
-        cmd += ["-c:s", "copy" if all(a.action == "copy" for a in sub_actions) else "srt"]
+        if all(a.action == "copy" for a in sub_actions):
+            cmd += ["-c:s", "copy"]
+        else:
+            # 字幕编码随容器：mp4/mov 只认 mov_text，WebM 只认 webvtt
+            if container in ("video/mp4", "video/quicktime"):
+                cmd += ["-c:s", "mov_text"]
+            elif container == "video/webm":
+                cmd += ["-c:s", "webvtt"]
+            else:
+                cmd += ["-c:s", "srt"]
 
     # MP4 的 moov atom 放到文件头，网页播放才能边下边播
     if dst.suffix.lower() in (".mp4", ".m4v", ".m4a", ".mov"):

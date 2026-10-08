@@ -94,7 +94,10 @@ class Preset:
     """按格式覆盖的选项：{"image/jpeg": {"quality": 82}}，"*" 表示全局。"""
 
     def options_for(self, target: MediaType) -> dict[str, Any]:
+        """按 全局("*") → 域通配（"video/*"）→ 具体格式 逐层合并。"""
         merged = dict(self.options.get("*", {}))
+        if "/" in target:
+            merged.update(self.options.get(f"{target.split('/', 1)[0]}/*", {}))
         merged.update(self.options.get(target, {}))
         return merged
 
@@ -103,36 +106,49 @@ PRESETS: dict[str, Preset] = {
     "original": Preset(
         "original", "保持原样", "最高保真，不主动压缩",
         {
-            "image/jpeg": {"quality": 95},
-            "image/webp": {"quality": 95},
-            "image/avif": {"quality": 90},
+            "image/jpeg": {"quality": 95, "subsampling": 0, "optimize": True},
+            "image/webp": {"quality": 95, "method": 6},
+            "image/avif": {"quality": 90, "speed": 4},
+            "image/png": {"compress_level": 9, "optimize": True},
         },
     ),
     "web": Preset(
         "web", "网页优化", "体积和画质平衡，适合网页和社交平台",
         {
             "*": {"max_edge": 2048},
-            "image/jpeg": {"quality": 82, "progressive": True},
+            "image/jpeg": {"quality": 82, "progressive": True, "subsampling": 2,
+                           "optimize": True},
             "image/webp": {"quality": 80},
-            "image/avif": {"quality": 65},
-            "image/png": {"optimize": True},
+            "image/avif": {"quality": 65, "speed": 6},
+            "image/png": {"optimize": True, "compress_level": 9},
+            "video/*": {"max_edge": 1920, "quality": 70, "preset_speed": "veryfast"},
+            "audio/*": {"quality": 70},
         },
     ),
     "compact": Preset(
         "compact", "极限压缩", "优先体积，画质可见下降",
         {
             "*": {"max_edge": 1280, "keep_metadata": False},
-            "image/jpeg": {"quality": 70, "progressive": True},
+            "image/jpeg": {"quality": 70, "progressive": True, "subsampling": 2,
+                           "optimize": True},
             "image/webp": {"quality": 65},
-            "image/avif": {"quality": 50},
+            "image/avif": {"quality": 50, "speed": 8},
+            "video/*": {"max_edge": 1280, "quality": 50, "preset_speed": "veryfast"},
+            "audio/*": {"quality": 50},
         },
     ),
     "archive": Preset(
         "archive", "归档保存", "无损优先，保留全部元数据",
         {
             "*": {"keep_metadata": True, "keep_icc": True},
-            "image/webp": {"lossless": True},
-            "image/png": {"optimize": True},
+            # 有损源不装无损：lossless="auto" 只在源本身无损时启用，
+            # 有损源走 q98——有损转无损只会更大更慢，画质不会回来
+            "image/webp": {"lossless": "auto", "quality": 98, "method": 6},
+            "image/jpeg": {"quality": 98, "subsampling": 0, "optimize": True},
+            "image/png": {"optimize": True, "compress_level": 9},
+            "image/avif": {"quality": 92, "speed": 2},
+            "video/*": {"quality": 95, "preset_speed": "slow"},
+            "audio/*": {"quality": 95},
         },
     ),
 }

@@ -18,6 +18,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `convcore doctor` section report the gate state; `tests/test_raster_to_vector.py` covers
   the gate, the heuristic and the end-to-end conversions
 
+### Fixed
+- Vorbis quality was mapped with the LAME scale, so `quality: 100` produced the worst setting.
+  Vorbis `-q:a` runs -1..10 with higher being better; the default is now `-q:a 6`
+- EXIF orientation was applied to the pixels but the tag was passed through unchanged, so
+  viewers rotated phone photos a second time. The tag is stripped after transposing, other
+  EXIF fields are kept
+- An explicit `fps` was silently ignored whenever the video stream could be copied; it now
+  forces a video transcode, and `decide()` reports the matching loss tier instead of COPY
+- GIF went through Pillow's `convert("P")`, which uses the WEB 216-colour palette and
+  posterises gradients; frames now share one adaptive median-cut palette (both the static and
+  the animated path)
+- The HEIC/AVIF writers kept only the first frame of animated sources; they now export every
+  frame (or the first one with a warning under the DROP policy)
+- mpeg4 (AVI) had no default quality argument and fell back to ffmpeg's ~200 kbps default
+- Incompatible subtitle streams were dropped instead of transcoded (mp4/mov → mov_text,
+  WebM → webvtt, others → srt)
+- AV1 encodes lacked `-b:v 0` (so CRF was clamped) and any speed control
+
 ### Changed
 - `SvgCodec` no longer depends on a renderer: reading and writing SVG, and SVG → HTML, work
   without resvg. Only rasterization is gated on a renderer
@@ -25,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embedded) instead of the text-extraction route that produced empty documents; video/PDF
   sources may still be rejected at the tracing entry, which the reachability test documents
   as an accepted runtime behaviour
+
+- Presets now cover video and audio through `video/*` / `audio/*` wildcards: `-p web`,
+  `-p compact` and `-p archive` previously had no effect on media files at all
+- JPEG defaults to 4:2:2 chroma subsampling instead of Pillow's 4:2:0 (4:4:4 and 4:2:0 stay
+  available through presets and options); `archive` WebP is `lossless="auto"` — lossless only
+  when the source itself is lossless, high-quality lossy otherwise
+- Audio bitrate defaults scale with channel count (448k above stereo), x264/x265 default CRF
+  is 20/22, AVIF defaults to `speed=4, quality=80`
+- Media conversions pass `-map_metadata 0 -map_chapters 0` by default and clear them when
+  `keep_metadata` is false
 
 ## [0.2.0] - 2026-10-08
 

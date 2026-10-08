@@ -20,6 +20,7 @@ from ._raster_util import (
     apply_resize,
     coerce_mode,
     flatten_alpha,
+    handle_animation,
     load_frames,
     metadata_kwargs,
 )
@@ -55,15 +56,25 @@ class HeifCodec:
     ) -> list[Resource]:
         pol: Policy = options.get("_policy") or Policy()
         raster = apply_resize(ir, options, pol)
-        im = coerce_mode(raster.primary.image, ("RGBA", "RGB", "L"), pol)
-        buf = io.BytesIO()
-        im.save(
-            buf,
-            format="HEIF",
-            quality=int(options.get("quality", 90)),
-            **metadata_kwargs(raster, pol, icc=True, exif=True),
-        )
-        return [Resource(media_type=target, data=buf.getvalue())]
+        raster = handle_animation(raster, pol, "HEIC", supports_animation=False)
+        out: list[Resource] = []
+        for i, frame in enumerate(raster.frames):
+            im = coerce_mode(frame.image, ("RGBA", "RGB", "L"), pol)
+            buf = io.BytesIO()
+            im.save(
+                buf,
+                format="HEIF",
+                quality=int(options.get("quality", 90)),
+                **metadata_kwargs(raster, pol, icc=True, exif=True),
+            )
+            out.append(
+                Resource(
+                    media_type=target,
+                    data=buf.getvalue(),
+                    name=None if len(raster.frames) == 1 else f"frame-{i + 1:03d}",
+                )
+            )
+        return out
 
 
 @register
@@ -100,16 +111,26 @@ class AvifCodec:
     ) -> list[Resource]:
         pol: Policy = options.get("_policy") or Policy()
         raster = apply_resize(ir, options, pol)
-        im = coerce_mode(raster.primary.image, ("RGBA", "RGB", "L"), pol)
-        buf = io.BytesIO()
-        im.save(
-            buf,
-            format="AVIF",
-            quality=int(options.get("quality", 75)),
-            speed=int(options.get("speed", 6)),
-            **metadata_kwargs(raster, pol, icc=True, exif=True),
-        )
-        return [Resource(media_type=target, data=buf.getvalue())]
+        raster = handle_animation(raster, pol, "AVIF", supports_animation=False)
+        out: list[Resource] = []
+        for i, frame in enumerate(raster.frames):
+            im = coerce_mode(frame.image, ("RGBA", "RGB", "L"), pol)
+            buf = io.BytesIO()
+            im.save(
+                buf,
+                format="AVIF",
+                quality=int(options.get("quality", 80)),
+                speed=int(options.get("speed", 4)),
+                **metadata_kwargs(raster, pol, icc=True, exif=True),
+            )
+            out.append(
+                Resource(
+                    media_type=target,
+                    data=buf.getvalue(),
+                    name=None if len(raster.frames) == 1 else f"frame-{i + 1:03d}",
+                )
+            )
+        return out
 
 
 @register

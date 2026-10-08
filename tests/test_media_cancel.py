@@ -26,7 +26,7 @@ def test_media_write_removes_partial_output_on_cancel(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(
         ffmpeg,
         "build_command",
-        lambda _exe, _src, dst, _ir, _decision, _opts: ["fake", str(dst)],
+        lambda _exe, _src, dst, _ir, _decision, _container, _opts: ["fake", str(dst)],
     )
 
     def fake_stream_lines(cmd, **_kwargs):

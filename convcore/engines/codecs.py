@@ -100,10 +100,10 @@ CONTAINER_CODECS: dict[MediaType, dict[str, frozenset[str]]] = {
 # 目标容器的默认编码器。ffmpeg 的内置默认有时不理想（比如 mkv 默认可能选到
 # 不那么通用的组合），显式指定更可控。
 DEFAULT_ENCODERS: dict[MediaType, dict[str, str]] = {
-    "video/mp4": {"video": "libx264", "audio": "aac"},
-    "video/x-matroska": {"video": "libx264", "audio": "aac"},
-    "video/quicktime": {"video": "libx264", "audio": "aac"},
-    "video/webm": {"video": "libvpx-vp9", "audio": "libopus"},
+    "video/mp4": {"video": "libx264", "audio": "aac", "subtitle": "mov_text"},
+    "video/x-matroska": {"video": "libx264", "audio": "aac", "subtitle": "srt"},
+    "video/quicktime": {"video": "libx264", "audio": "aac", "subtitle": "mov_text"},
+    "video/webm": {"video": "libvpx-vp9", "audio": "libopus", "subtitle": "webvtt"},
     "video/x-msvideo": {"video": "mpeg4", "audio": "libmp3lame"},
     "video/x-flv": {"video": "libx264", "audio": "aac"},
     "video/mp2t": {"video": "libx264", "audio": "aac"},
@@ -124,13 +124,14 @@ QUALITY_STYLE: dict[str, str] = {
     "libx264": "crf",
     "libx265": "crf",
     "libvpx-vp9": "crf-vp9",
-    "libaom-av1": "crf",
-    "libsvtav1": "crf",
+    "libaom-av1": "crf-av1",
+    "libsvtav1": "crf-av1",
     "mpeg4": "qscale",
     "libmp3lame": "qscale-audio",
     "aac": "bitrate",
     "libopus": "bitrate",
-    "libvorbis": "qscale-audio",
+    # vorbis 的 -q:a 与 LAME 方向相反（-1..10 越大越好），必须单独一套映射
+    "libvorbis": "qscale-vorbis",
     "flac": "none",
     "pcm_s16le": "none",
     "pcm_s16be": "none",
@@ -215,13 +216,23 @@ def supported(container: MediaType, kind: str) -> frozenset[str]:
     return CONTAINER_CODECS.get(container, {}).get(kind, frozenset())
 
 
-def decide(plan, target: MediaType, *, force_transcode: bool = False) -> RemuxDecision:
+def decide(
+    plan,
+    target: MediaType,
+    *,
+    force_transcode: bool = False,
+    force_video_transcode: bool = False,
+) -> RemuxDecision:
     """决定每条流是拷贝、转码还是丢弃。
 
     这是 remux 短路的核心。判定顺序：
     1. 目标容器根本不支持这类流（如 WebM 不支持 PGS 字幕）→ 丢弃
     2. 编码在目标容器的白名单里 → 拷贝
     3. 否则 → 转码成目标容器的默认编码器
+
+    force_video_transcode 用于「用户显式指定了 fps」这类只作用于视频轨的
+    请求：视频必须重编码，音频/字幕照常拷贝。决策必须与 build_command 的
+    行为一致，否则报出的损失等级会骗人（标 COPY 实际转了码）。
     """
     actions: list[StreamAction] = []
     caps = CONTAINER_CODECS.get(target)
@@ -263,7 +274,11 @@ def decide(plan, target: MediaType, *, force_transcode: bool = False) -> RemuxDe
             )
             continue
 
-        if s.codec in allowed and not force_transcode:
+        if (
+            s.codec in allowed
+            and not force_transcode
+            and not (force_video_transcode and s.kind == "video")
+        ):
             actions.append(
                 StreamAction(s.index, s.kind, "copy", reason=f"{s.codec} 兼容目标容器")
             )

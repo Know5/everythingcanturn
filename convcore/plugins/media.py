@@ -24,11 +24,14 @@ _VIDEO_OPTS = frozenset(
     {
         "quality", "width", "height", "max_edge", "fps", "preset_speed",
         "video_bitrate", "audio_bitrate", "pix_fmt", "start", "duration",
-        "force_transcode",
+        "force_transcode", "cpu_used", "svt_preset", "keep_metadata",
     }
 )
 _AUDIO_OPTS = frozenset(
-    {"quality", "audio_bitrate", "sample_rate", "channels", "start", "duration"}
+    {
+        "quality", "audio_bitrate", "sample_rate", "channels", "start",
+        "duration", "keep_metadata",
+    }
 )
 
 _VIDEO_TYPES = (
@@ -113,7 +116,10 @@ class FFmpegCodec:
         dst = tmp / f"out{primary_extension(target) or '.bin'}"
 
         decision = codec_tbl.decide(
-            ir, target, force_transcode=bool(options.get("force_transcode"))
+            ir,
+            target,
+            force_transcode=bool(options.get("force_transcode")),
+            force_video_transcode=bool(options.get("fps")),
         )
 
         kept = [a for a in decision.actions if a.action != "drop"]
@@ -125,7 +131,7 @@ class FFmpegCodec:
 
         self._record_decision(ir, decision, target, pol)
 
-        cmd = ffmpeg.build_command(exe, src, dst, ir, decision, options)
+        cmd = ffmpeg.build_command(exe, src, dst, ir, decision, target, options)
 
         # 转码耗时与时长强相关。给足余量：慢编码器（VP9/AV1）可能比实时慢 20 倍
         timeout = max(600.0, (ir.duration or 60) * 30)

@@ -108,7 +108,8 @@ class PillowCodec:
         *caps(
             "image/webp",
             loss=LossTier.LOSSY,
-            options=_GEOM_OPTS | {"quality", "lossless", "method"},
+            options=_GEOM_OPTS | {"quality", "lossless", "method",
+                                  "alpha_quality", "exact"},
         ),
         # GIF 只有 256 色，从真彩色转过去必然丢色彩
         *caps("image/gif", loss=LossTier.LOSSY, options=_GEOM_OPTS | {"dither"}),
@@ -156,9 +157,18 @@ class PillowCodec:
             return [self._write_animated(raster, target, spec, save_kw, pol)]
 
         # 多帧但目标不支持动画 → 一进多出，每帧一个文件
+        gif_frames = (
+            self._gif_quantize([f.image for f in raster.frames], pol)
+            if target == "image/gif"
+            else None
+        )
         outputs: list[Resource] = []
         for i, frame in enumerate(raster.frames):
-            im = coerce_mode(frame.image, spec["modes"], pol)
+            im = (
+                gif_frames[i]
+                if gif_frames is not None
+                else coerce_mode(frame.image, spec["modes"], pol)
+            )
             buf = io.BytesIO()
             im.save(buf, format=spec["pil"], **save_kw)
             outputs.append(
@@ -169,6 +179,26 @@ class PillowCodec:
                 )
             )
         return outputs
+
+    @staticmethod
+    def _gif_quantize(frames: list[Any], pol: Policy) -> list[Any]:
+        """GIF 帧统一到一张自适应 256 色调色板。
+
+        Pillow 的 convert("P") 用 WEB 216 色调色板（上世纪 8 位显示器的色阶），
+        照片渐变会 posterize；逐帧独立调色板又会让动图闪烁。首帧中值切分
+        出调色板、其余帧映射过去：颜色自适应且帧间稳定。
+        """
+        dither = Image.Dither.FLOYDSTEINBERG if pol.dither else Image.Dither.NONE
+        palette = frames[0].convert("RGB").quantize(
+            colors=256, method=Image.Quantize.MEDIANCUT
+        )
+        return [
+            im
+            if im.mode == "P"
+            else im.convert("RGB").quantize(palette=palette, dither=dither)
+            for im in frames
+        ]
+
 
     def _save_kwargs(
         self,
@@ -189,26 +219,37 @@ class PillowCodec:
         if target == "image/jpeg":
             kw["quality"] = int(options.get("quality", 90))
             kw["progressive"] = bool(options.get("progressive", False))
-            # optimize 霍夫曼表二次扫描：12MP 上编码时间翻倍（31ms→16ms）
-            # 换 ~5% 体积，默认不开。要更小体积显式传 optimize=True。
-            if options.get("optimize"):
-                kw["optimize"] = True
-            if "subsampling" in options:
-                kw["subsampling"] = options["subsampling"]
+            # optimize 是霍夫曼表二次扫描：纯体积收益（约 5-8%），编码时间约翻倍
+            # （12MP 实测 16ms→31ms）。代码默认保持快档；original/archive/web
+            # 预设会显式开启。
+            kw["optimize"] = bool(options.get("optimize", False))
+            # 4:2:0（Pillow 默认）砍掉一半色彩分辨率，高质量档下肉眼可见。
+            # 默认 4:2:2；original/archive 预设用 0（4:4:4），web 可显式 2。
+            kw["subsampling"] = int(options.get("subsampling", 1))
 
         elif target == "image/webp":
-            if options.get("lossless"):
+            lossless = options.get("lossless")
+            if lossless == "auto":
+                # 归档语义：源本身无损才无损——有损转无损只会更大更慢
+                lossless = (raster.source_type or "") in (
+                    "image/png", "image/bmp", "image/tiff", "image/gif",
+                    "image/x-portable-pixmap", "image/x-tga",
+                )
+            if lossless:
                 kw["lossless"] = True
             else:
                 kw["quality"] = int(options.get("quality", 85))
             # method 是搜索深度。12MP 实测 method=4 676ms vs method=2 291ms，
-            # 输出同为 20KB——多花的 2.3 倍时间买不到任何质量，默认快档。
-            # 极限压缩（传输场景）显式传 method=6。
+            # 输出同为 20KB——默认快档；original/archive 预设显式 method=6。
             kw["method"] = int(options.get("method", 2))
+            if "alpha_quality" in options:
+                kw["alpha_quality"] = int(options["alpha_quality"])
+            if options.get("exact"):
+                kw["exact"] = True
 
         elif target == "image/png":
-            # optimize（霍夫曼表二次扫描）在 A4 尺寸页面上把编码拖慢 2.5 倍
-            # （20 页 491ms vs 200ms）换几个百分点体积，默认关。
+            # 压缩级别只换体积不换画质，但 level 9 + optimize 在 A4 页面上把编码
+            # 拖慢 2.5 倍（20 页 491ms vs 200ms）。代码默认快档，预设里拉满。
             kw["optimize"] = bool(options.get("optimize", False))
             if "compress_level" in options:
                 kw["compress_level"] = int(options["compress_level"])
@@ -235,30 +276,26 @@ class PillowCodec:
         durations = [max(f.duration_ms, 20) for f in raster.frames]
 
         if target == "image/gif":
-            # GIF 需要调色板化。逐帧独立量化会导致闪烁，所以统一用 WEB 调色板；
-            # 抖动能明显改善渐变区域的观感。
-            dither = Image.Dither.FLOYDSTEINBERG if pol.dither else Image.Dither.NONE
+            # GIF 需要调色板化，统一走全局自适应调色板（见 _gif_quantize）
             if any(im.mode != "P" for im in frames):
                 pol.note(
                     "色彩深度",
                     Strategy.APPROXIMATE,
                     "GIF 限 256 色，真彩色已量化" + ("（抖动）" if pol.dither else ""),
                 )
-            frames = [
-                im.convert("RGB").convert("P", palette=Image.Palette.WEB, dither=dither)
-                if im.mode != "P"
-                else im
-                for im in frames
-            ]
+            frames = self._gif_quantize(frames, pol)
 
         buf = io.BytesIO()
+        extra: dict[str, Any] = {}
+        if target != "image/tiff":
+            # TIFF 的「帧」是页，没有延时/循环语义，传了只会被忽略
+            extra = {"duration": durations, "loop": raster.loop}
         frames[0].save(
             buf,
             format=spec["pil"],
             save_all=True,
             append_images=frames[1:],
-            duration=durations,
-            loop=raster.loop,
+            **extra,
             **save_kw,
         )
         return Resource(media_type=target, data=buf.getvalue())

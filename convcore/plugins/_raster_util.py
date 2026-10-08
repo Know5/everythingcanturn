@@ -14,6 +14,25 @@ from ..ir.raster import Frame, Raster
 from ..policy import Policy, Strategy
 
 
+def _drop_orientation(exif: bytes | None) -> bytes | None:
+    """剥掉 EXIF 的 Orientation 标记，其余字段原样保留。
+
+    load_frames 已按方向旋正像素，旧标记留着会让下游查看器再转一次——
+    手机照片转出后躺倒的最常见原因。
+    """
+    if not exif:
+        return exif
+    try:
+        parsed = Image.Exif()
+        parsed.load(exif)
+        if 0x0112 not in parsed:
+            return exif
+        del parsed[0x0112]
+        return parsed.tobytes()
+    except Exception:
+        return exif  # 解析不了就原样带过，不为元数据把转换弄挂
+
+
 def load_frames(img: Image.Image, source_type: str | None = None) -> Raster:
     """把 Pillow 图像（可能多帧）读成 Raster。
 
@@ -22,7 +41,8 @@ def load_frames(img: Image.Image, source_type: str | None = None) -> Raster:
     2. ImageSequence 迭代得 copy() 每帧，否则拿到的都是同一个共享缓冲。
     """
     icc = img.info.get("icc_profile")
-    exif = img.info.get("exif")
+    # 像素马上会被 exif_transpose 旋正；EXIF 里的 Orientation 必须同步去掉
+    exif = _drop_orientation(img.info.get("exif"))
     loop = int(img.info.get("loop", 0) or 0)
 
     frames: list[Frame] = []
