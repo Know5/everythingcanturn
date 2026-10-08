@@ -318,15 +318,31 @@ def test_transparent_image_to_webm(tmp_path):
     assert res.outputs[0].path.stat().st_size > 0
 
 
-def test_refine_targets_ignores_non_media(samples):
-    """图片文件不该触发 ffprobe，静态声明直接返回。"""
+def test_refine_targets_ignores_non_media(samples, monkeypatch):
+    """图片文件不该触发 ffprobe：只做本地描摹预检（PIL，不起进程）。
+
+    照片会被剔掉矢量路线的目标（svg/html/md/epub，见 refine_targets 的 trace
+    探测），其余按静态声明原样返回，损失等级不重算。
+    """
+    from convcore.engines import ffmpeg
     from convcore.pipeline import Converter
 
+    def boom(*args, **kwargs):
+        raise AssertionError("图片源不该触发 ffprobe")
+
+    monkeypatch.setattr(ffmpeg, "analyze", boom)
     conv = Converter()
     src_mt = "image/png"
     targets = conv.targets_for(src_mt)
     actual = conv.refine_targets(samples["png"], src_mt, targets)
-    assert actual == {mt: p.loss for mt, p in targets.items()}
+
+    static = {mt: p.loss for mt, p in targets.items()}
+    assert set(static) - set(actual) <= {
+        "image/svg+xml", "text/html", "text/markdown", "application/epub+zip",
+    }, "只允许剔除描摹路线的目标"
+    assert "image/svg+xml" not in actual, "照片不该列出 SVG"
+    for mt, loss in actual.items():
+        assert loss == static[mt]
 
 
 def test_analyze_reports_streams(media):

@@ -27,11 +27,12 @@ class FakeCodec:
         return []
 
 
-def make_graph(*plugins) -> FormatGraph:
+def make_graph(*plugins, gate_bridges: bool = False) -> FormatGraph:
+    """假插件图默认不门控——单测不该绑真实依赖（resvg / vtracer 装没装）。"""
     reg = Registry()
     for p in plugins:
         reg.add(p)
-    return FormatGraph(reg)
+    return FormatGraph(reg, gate_bridges=gate_bridges)
 
 
 def test_hub_gives_unlisted_pair_for_free():
@@ -212,15 +213,52 @@ def test_same_format_is_noop():
     assert g.find_path("image/png", "image/png").edges == []
 
 
-def test_cross_domain_needs_declared_bridge():
-    """位图→矢量不该被自动搜出来：那是推断而非翻译。"""
+def test_raster_to_vector_bridge_is_declared():
+    """位图→矢量是声明的桥：READ/BRIDGE/WRITE，档位 INFERRED。"""
+    g = make_graph(
+        FakeCodec("raster", "raster", caps("image/png"), caps("image/bmp")),
+        FakeCodec("vector", "vector", caps("image/svg+xml"), caps("image/svg+xml")),
+    )
+    path = g.find_path("image/png", "image/svg+xml")
+    assert [e.kind for e in path.edges] == [
+        EdgeKind.READ, EdgeKind.BRIDGE, EdgeKind.WRITE
+    ]
+    assert path.loss is LossTier.INFERRED
+
+
+def test_vector_without_write_is_not_a_target():
+    """桥在，但矢量域没有写出边时 PNG→SVG 仍不可达。"""
     g = make_graph(
         FakeCodec("raster", "raster", caps("image/png"), caps("image/bmp")),
         FakeCodec("vector", "vector", caps("image/svg+xml"), ()),
     )
-    # vector→raster 有桥接，方向反过来没有
     with pytest.raises(NoPathError):
         g.find_path("image/png", "image/svg+xml")
+
+
+def _gated_registry() -> Registry:
+    reg = Registry()
+    reg.add(FakeCodec("raster", "raster", caps("image/png"), caps("image/bmp")))
+    reg.add(FakeCodec("vector", "vector", caps("image/svg+xml"), caps("image/svg+xml")))
+    return reg
+
+
+def test_bridge_gate_blocks_when_unavailable(monkeypatch):
+    """门控为假时桥不进图：PNG→SVG 找不到路径，而不是运行到一半失败。"""
+    import convcore.graph as graph_mod
+
+    monkeypatch.setattr(graph_mod, "bridge_enabled", lambda a, b: False)
+    g = FormatGraph(_gated_registry(), gate_bridges=True)
+    with pytest.raises(NoPathError):
+        g.find_path("image/png", "image/svg+xml")
+
+
+def test_bridge_gate_allows_when_available(monkeypatch):
+    import convcore.graph as graph_mod
+
+    monkeypatch.setattr(graph_mod, "bridge_enabled", lambda a, b: True)
+    g = FormatGraph(_gated_registry(), gate_bridges=True)
+    assert g.find_path("image/png", "image/svg+xml").edges
 
 
 def test_bridge_enables_vector_to_raster():
@@ -299,6 +337,16 @@ def test_pdf_from_image_has_no_text_layer():
         g.find_path("image/png", "text/markdown")
     # 普通 PDF 照常能抽文字
     assert g.find_path("application/pdf", "text/markdown").edges
+
+
+def test_photo_lacks_trace_blocks_vector_targets():
+    """照片缺「可描摹」：raster ⇒ vector 桥走不通，SVG 目标不列出。"""
+    g = make_graph(
+        FakeCodec("raster", "raster", caps("image/png"), caps("image/bmp")),
+        FakeCodec("vector", "vector", caps("image/svg+xml"), caps("image/svg+xml")),
+    )
+    path = g.find_path("image/png", "image/svg+xml")
+    assert path.blocked_under(frozenset({"trace"}))
 
 
 def test_missing_content_survives_materialization():

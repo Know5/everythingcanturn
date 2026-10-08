@@ -76,6 +76,8 @@ dist/convcore/
   `convcore/engines/manifest.py`），或自行[下载](https://www.gyan.dev/ffmpeg/builds/)放 PATH / 与 exe 同目录。
 - **resvg**：SVG 转位图。可优先安装 `pip install -e ".[vector]"` 使用 Python 绑定，
   也可以使用 [resvg 单文件](https://github.com/linebender/resvg/releases)。
+- **vtracer**：位图描摹成 SVG（PNG/JPG → SVG）。`pip install -e ".[vector]"`，
+  未装时描摹桥整体从目标列表消失（图搜索按依赖门控）。
 - **rawpy**：相机 RAW 格式（CR2/NEF/ARW）。`pip install -e ".[raw]"`。
 
 ## 使用
@@ -266,6 +268,7 @@ dist/convcore/convcore.exe  # 启动 GUI
 | 转换方向 | 实现 | 损失档位 | 说明 |
 |---------|------|---------|------|
 | **vector → raster** | resvg-py / resvg / cairosvg | STRUCTURAL | SVG 栅格化 |
+| **raster → vector** | vtracer | INFERRED | 位图描摹成 SVG（图标/线稿；照片默认拒绝，`--force` 强制） |
 | **vector → markup** | 内置 | LOSSLESS | SVG 嵌入 HTML |
 | **document → raster** | PyMuPDF | STRUCTURAL | PDF 渲染成图 |
 | **document → markup** | PyMuPDF | INFERRED | PDF 抽文本，按字号推断标题 |
@@ -286,6 +289,8 @@ dist/convcore/convcore.exe  # 启动 GUI
 **内容约束**：有些桥的产物天生缺某种内容，之后需要这种内容的边就不会被搜出来：
 
 - 图片嵌成的 PDF 没有文本层：PNG 能转 PDF，但不列 Markdown、CSV、Word
+- 照片缺可描摹性：能转 PDF 和图片格式，但不列 SVG（以及经描摹的 HTML / Markdown /
+  EPUB）——图标、Logo、线稿不受影响，见「位图 → 矢量描摹」
 - 图片合成的视频没有音轨：PNG 能转 MP4，但不列 MP3
 - SVG 嵌进文档树只是一段原始 SVG：能转 HTML、Markdown、EPUB，但不列纯文本、Word、表格
 
@@ -294,7 +299,10 @@ dist/convcore/convcore.exe  # 启动 GUI
 完成，GUI、Web UI 和 `convcore targets` 用的都是它。约束声明在 `convcore/graph.py` 的
 `BRIDGE_LACKS` / `BRIDGE_REQUIRES`，插件写出能力用 `Capability.requires` 声明（如 MP3 要求 `audio`）。
 
-**位图 → 矢量（描摹）尚未实现**：PNG→SVG 目前没有路径，设计在 `feature/raster-to-vector` 分支。
+**位图 → 矢量描摹**（2026-10-08 实现，设计文档 `docs/superpowers/specs/2026-09-20-raster-to-vector-design.md`）：
+图标、Logo、线稿类位图可描摹为 SVG（`vtracer`，INFERRED 档）。照片会被入口启发式拒绝——
+描摹照片只会得到色块海报；`--force` 可强制（附硬警告）。光栅源在 `refine_targets`
+阶段就做同一套预检，照片不会列出 SVG。
 
 ## 限制
 

@@ -190,7 +190,7 @@ class Api:
 
         # 每个域里可读/可写的 MIME 各自去哪：直接报目标域，不展开逐对矩阵
         # （可读+可写各域的格子没人能读）。域间的可达性由 BRIDGES 决定。
-        from ..graph import BRIDGES
+        from ..graph import BRIDGES, bridge_enabled
 
         # 哪些域活着（有插件且至少一边是活的）
         live_domains: set[str] = set()
@@ -203,7 +203,11 @@ class Api:
         for d in live_domains:
             reach[d] = {d}
         for src_d, dst_d, _, _, _ in BRIDGES:
-            if src_d in live_domains and dst_d in live_domains:
+            if (
+                src_d in live_domains
+                and dst_d in live_domains
+                and bridge_enabled(src_d, dst_d)
+            ):
                 reach.setdefault(src_d, set()).add(dst_d)
 
         groups: dict[str, list[dict[str, Any]]] = {}

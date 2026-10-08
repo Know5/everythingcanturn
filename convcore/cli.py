@@ -71,6 +71,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
             ("rotate", args.rotate),
             ("split", args.split or None),
             ("review_marks", False if args.no_review_marks else None),
+            ("force", args.force or None),
         )
         if v is not None
     }
@@ -171,7 +172,7 @@ def cmd_formats(args: argparse.Namespace) -> int:
     [读写] 双向 · [读 ] 只读 · [ 写] 只写。
     """
     from .formats import _TABLE, domain_of, gated_types
-    from .graph import BRIDGES
+    from .graph import BRIDGES, bridge_enabled
     from .pipeline import Converter
 
     conv = Converter()
@@ -201,7 +202,7 @@ def cmd_formats(args: argparse.Namespace) -> int:
             live.add(d)
     reach: dict[str, set[str]] = {d: {d} for d in live}
     for src_d, dst_d, _, _, _ in BRIDGES:
-        if src_d in live and dst_d in live:
+        if src_d in live and dst_d in live and bridge_enabled(src_d, dst_d):
             reach.setdefault(src_d, set()).add(dst_d)
 
     for domain in sorted(by_domain):
@@ -460,6 +461,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if spec.tier == "needed":
             missing_needed.append(spec.key)
 
+    # 跨域桥的依赖门禁：这些桥不是 Codec，不在插件可用性列表里，必须单独报，
+    # 否则用户只看到「PNG 转不了 SVG」，不知道缺什么。
+    from .graph import BRIDGE_GATE_HINTS, bridge_enabled
+
+    print("\n跨域桥（依赖可选引擎，各自独立门控）")
+    for (a, b), hint in sorted(BRIDGE_GATE_HINTS.items()):
+        if bridge_enabled(a, b):
+            print(f"  ✓ {a} ⇒ {b}")
+        else:
+            print(f"  ○ {a} ⇒ {b} 未启用 — {hint}")
+
     print(f"\n{'─' * 56}")
 
     # 从注册表推导可用领域，而不是硬编码「文档要 soffice」——文档域现在全是
@@ -651,6 +663,12 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--scale", type=float, help="缩放倍率，如 0.5")
     c.add_argument("--lossless", action="store_true", help="无损模式（WebP 等支持）")
     c.add_argument("--strip", action="store_true", help="去掉 EXIF 等元数据")
+    # 描摹：不是图标的位图默认拒绝，--force 强制
+    c.add_argument(
+        "--force",
+        action="store_true",
+        help="允许对不像图标的位图强制描摹（raster→vector）",
+    )
     # 文档域
     c.add_argument("--pages", help="页码范围，如 1-3,5（1 基，与阅读器一致）")
     c.add_argument("--password", help="加密 PDF 的密码")

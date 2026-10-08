@@ -8,7 +8,7 @@
 - READ:  Fmt → Hub    解码（插件的 parse）
 - WRITE: Hub → Fmt    编码（插件的 write）
 - DIRECT:Fmt → Fmt    绕过枢纽的引擎原生转换（remux、LibreOffice）
-- BRIDGE:Hub → Hub    跨域桥接（vector→raster 栅格化），必须显式声明
+- BRIDGE:Hub → Hub    跨域桥接（栅格化、描摹、排版…），必须显式声明
 
 于是 HEIC→ICO 自动等于 READ(heic→raster) + WRITE(raster→ico)，不需要有人写过
 这一对。加一个新格式插件，所有经由它的路径同时出现——这正是「做得全」的来源。
@@ -31,7 +31,7 @@ import heapq
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 from .formats import domain_of, label_of, normalize
 from .registry import Capability, Codec, DirectConverter, Registry
@@ -148,10 +148,15 @@ class Path:
 
 
 # 跨域桥接：只有语义明确的方向才允许。这张表是「什么算相关文件」的最终答案。
-# 注意方向性：矢量→位图是栅格化（合理），位图→矢量是推断（需要显式请求，不自动搜出来）。
+# 注意方向性：矢量→位图是栅格化（确定性的），位图→矢量是描摹（轮廓是猜的）。
+# 描摹自动搜出来，但标 INFERRED，且执行期启发式拒绝不像图标的输入（照片）。
 # (源域, 目标域, 损失等级, 时间代价, 保真度)
 BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
     ("vector", "raster", LossTier.STRUCTURAL, 2.0, 1.0),
+    # 位图 → 矢量：vtracer 描摹。轮廓是猜的，标 INFERRED。fidelity 0.9 是有意
+    # 的高值：图标的 PNG→HTML 改走「描摹再嵌 SVG」，而不是 raster→document→markup
+    # 那条对图标几乎抽不到字的路径。照片在描摹入口被启发式拦住（--force 可绕过）。
+    ("raster", "vector", LossTier.INFERRED, 8.0, 0.9),
     ("document", "raster", LossTier.STRUCTURAL, 8.0, 1.0),
     # PDF → 语义文档树：抽文本并按字号推断标题层级。PDF 不含「这是标题」的语义，
     # 所以是 INFERRED。fidelity 0.85：完整保留文本内容和标题层级，只丢失表格和图片。
@@ -192,6 +197,43 @@ BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
     ("vector", "markup", LossTier.LOSSLESS, 1.0, 1.0),
 )
 
+
+# ── 桥的依赖门控 ──
+#
+# 有些桥的可用性由外部依赖决定（栅格化要渲染器、描摹要 vtracer），而这些依赖
+# 不是 Codec，不经过注册表的 available 判定。探测函数在函数体内懒加载插件，
+# 避免 graph 在插件加载前被 import 时形成循环。
+
+
+def _has_svg_renderer() -> bool:
+    from .plugins.vector import has_svg_renderer
+
+    return has_svg_renderer()
+
+
+def _has_vtracer() -> bool:
+    from .plugins.vector import has_vtracer
+
+    return has_vtracer()
+
+
+BRIDGE_GATES: dict[tuple[Domain, Domain], Callable[[], bool]] = {
+    ("vector", "raster"): _has_svg_renderer,
+    ("raster", "vector"): _has_vtracer,
+}
+
+BRIDGE_GATE_HINTS: dict[tuple[Domain, Domain], str] = {
+    ("vector", "raster"): "缺 SVG 渲染器：pip install resvg-py",
+    ("raster", "vector"): "缺描摹引擎 vtracer：pip install vtracer",
+}
+"""门控失败时给用户看的原因，doctor 用它解释桥为什么不可用。"""
+
+
+def bridge_enabled(src: Domain, dst: Domain) -> bool:
+    """桥上挂的依赖是否就绪。没有门控的桥恒为真。"""
+    gate = BRIDGE_GATES.get((src, dst))
+    return True if gate is None else gate()
+
 # ── 内容约束 ──
 #
 # 有些桥的产物天生缺某种内容：raster ⇒ document 嵌出来的 PDF 页只有像素、没有
@@ -202,9 +244,11 @@ BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
 # 所以不能靠删桥解决，得在搜索里按路径排除。
 #
 # 缺的内容沿路径只增不减：没有 OCR、也没有配音，缺了就补不回来。
-# 具体文件缺什么（纯音频没画面、扫描件没文本层）由 Converter.refine_targets 探测。
-CONTENT = ("text", "audio", "picture")
-"""内容标记。text=文字 / 文本层，audio=音轨，picture=画面（视频轨或封面图）。"""
+# 具体文件缺什么（纯音频没画面、扫描件没文本层、照片不可描摹）由
+# Converter.refine_targets 探测。
+CONTENT = ("text", "audio", "picture", "trace")
+"""内容标记。text=文字/文本层，audio=音轨，picture=画面（视频轨或封面图），
+trace=可描摹（图标/线稿；照片缺它，描摹桥在入口会拒绝）。"""
 
 BRIDGE_LACKS: dict[tuple[Domain, Domain], frozenset[str]] = {
     ("raster", "document"): frozenset({"text"}),
@@ -218,6 +262,7 @@ BRIDGE_REQUIRES: dict[tuple[Domain, Domain], frozenset[str]] = {
     ("document", "table"): frozenset({"text"}),
     ("markup", "document"): frozenset({"text"}),  # 只有一段 SVG 的文档树排不出内容
     ("media", "raster"): frozenset({"picture"}),
+    ("raster", "vector"): frozenset({"trace"}),  # 照片描出来只会是色块海报
 }
 """桥要求输入有什么。READ / WRITE / DIRECT 边的要求来自 Capability.requires。"""
 
@@ -232,14 +277,15 @@ def _step(lacks: frozenset[str], edge: Edge) -> frozenset[str] | None:
 class FormatGraph:
     """由注册表构建的格式图。构建一次，多次查询。"""
 
-    def __init__(self, registry: Registry) -> None:
+    def __init__(self, registry: Registry, *, gate_bridges: bool = True) -> None:
+        """gate_bridges=False 只看域是否活着，供不绑真实依赖的测试图使用。"""
         self._out: dict[Node, list[Edge]] = {}
-        self._build(registry)
+        self._build(registry, gate_bridges=gate_bridges)
 
     def _add(self, edge: Edge) -> None:
         self._out.setdefault(edge.src, []).append(edge)
 
-    def _build(self, registry: Registry) -> None:
+    def _build(self, registry: Registry, *, gate_bridges: bool = True) -> None:
         for codec in registry.codecs():
             hub = Hub(codec.domain)
             # 只声明能力不够，还得真有对应方法——否则执行时才 AttributeError。
@@ -269,7 +315,7 @@ class FormatGraph:
 
         live = registry.domains()
         for a, b, loss, cost, fid in BRIDGES:
-            if a in live and b in live:
+            if a in live and b in live and (not gate_bridges or bridge_enabled(a, b)):
                 self._add(
                     Edge(EdgeKind.BRIDGE, Hub(a), Hub(b), loss, cost, None, fid,
                          requires=BRIDGE_REQUIRES.get((a, b), frozenset()),

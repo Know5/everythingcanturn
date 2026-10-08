@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Raster → vector tracing bridge (`vtracer`, included in the `vector` and `all` extras):
+  icons, logos and line art to SVG at the `INFERRED` tier. Photos are rejected by the entry
+  heuristic with a hint to `--force`; a forced trace succeeds with a hard warning.
+  `refine_targets` probes raster sources with the same heuristic, so photos do not even list
+  SVG as a target
+- Bridge dependency gates: `raster → vector` requires `vtracer`, `vector → raster` requires
+  a renderer. `convcore formats` domain reaches, the desktop help panel and a new
+  `convcore doctor` section report the gate state; `tests/test_raster_to_vector.py` covers
+  the gate, the heuristic and the end-to-end conversions
+
+### Changed
+- `SvgCodec` no longer depends on a renderer: reading and writing SVG, and SVG → HTML, work
+  without resvg. Only rasterization is gated on a renderer
+- Icon-like PNG sources now reach HTML / Markdown / EPUB through tracing (the SVG gets
+  embedded) instead of the text-extraction route that produced empty documents; video/PDF
+  sources may still be rejected at the tracing entry, which the reachability test documents
+  as an accepted runtime behaviour
+
 ## [0.2.0] - 2026-10-08
 
 ### Security

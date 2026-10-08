@@ -1,6 +1,6 @@
 # 已知问题与后续建议
 
-> 记录截至 2026-09-29 的状态。用于交接给下一个会话或贡献者，避免重复排查。
+> 记录截至 2026-10-08 的状态。用于交接给下一个会话或贡献者，避免重复排查。
 > 安全的优先级分析见 [SECURITY_REVIEW.md](SECURITY_REVIEW.md)。
 > 本文件和 README 描述的能力都应能在代码里找到对应；对不上时以代码为准，并回来修文档。
 
@@ -23,10 +23,11 @@
 
 ## 二、功能缺口（按影响排序）
 
-1. **位图 → 矢量（raster → vector）桥接未实现**
-   桥接表 `BRIDGES` 只有 `vector → raster`（栅格化）。反向的 `raster → vector`（描摹）
-   当前无实现，图搜索不会搜出这条路径，README 已如实标注。设计已批准，在
-   `feature/raster-to-vector` 分支：`docs/superpowers/specs/2026-09-20-raster-to-vector-design.md`。
+1. ~~**位图 → 矢量（raster → vector）桥接未实现**~~ **已实现（2026-10-08）**：
+   `vtracer` 描摹，图标/线稿可 PNG→SVG（INFERRED；照片默认拒绝，`--force` 强制）。
+   遗留边界：视频/PDF 源经「先渲染再描摹」到达矢量目标的路径无法在 refine 阶段
+   廉价预检，运行时可能被描摹入口的启发式拒绝——这是设计接受的行为，与
+   「只有段落的 HTML → CSV 抽不到表格」同类的运行时内容依赖。
 
 2. **JPEG XL（image/jxl）未支持**
    `formats.py` 明确留言"JPXL 留在表外：无插件实现"。要支持需引入
@@ -61,6 +62,7 @@
 | pillow-heif | HEIC 读写不可用（iPhone 照片） |
 | psd-tools | PSD 读取不可用 |
 | rawpy | 相机 RAW 读取不可用 |
+| vtracer | 位图 → SVG 描摹不可用（PNG/JPG→SVG 不再出现在目标列表） |
 
 外部引擎状态：**FFmpeg 9.0.1 ✓、UnRAR ✓、soffice ✗**。
 未装依赖的插件不会破坏引擎启动——`available()` 返回原因并跳过，`doctor` 会列出。

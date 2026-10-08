@@ -123,6 +123,14 @@ class Converter:
                 lacks.add("picture")
             if not plan.audio:
                 lacks.add("audio")
+        elif domain == "raster":
+            try:
+                from .plugins.vector import traceable_raster
+
+                if traceable_raster(source) is False:
+                    lacks.add("trace")
+            except Exception:
+                pass  # 探测失败就按静态声明列
 
         if lacks:
             frozen = frozenset(lacks)
@@ -402,6 +410,10 @@ class Converter:
             from .plugins.vector import rasterize
 
             return rasterize(ir, opts, pol)
+        if (src_domain, dst_domain) == ("raster", "vector"):
+            from .plugins.vector import trace_raster
+
+            return trace_raster(ir, opts, pol)
         if (src_domain, dst_domain) == ("document", "raster"):
             from .plugins.document import rasterize_pdf
 

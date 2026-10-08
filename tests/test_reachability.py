@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw
 from convcore import Converter, convert_file
 from convcore.engines.probe import ENGINES, probe_one
 from convcore.formats import domain_of, label_of
+from convcore.graph import EdgeKind, Hub
 
 pytest.importorskip("pymupdf", reason="文档桥需要 pymupdf")
 
@@ -111,12 +112,24 @@ def test_every_listed_target_converts(key, sources, conv, tmp_path):
         pytest.skip("需要 ffmpeg")
     src = sources[key]
     src_mt = conv.detect(src)
-    listed = conv.refine_targets(src, src_mt, conv.targets_for(src_mt))
+    targets = conv.targets_for(src_mt)
+    listed = conv.refine_targets(src, src_mt, targets)
     assert listed, f"{key} 一个目标都没有"
 
     problems = []
     for mt in sorted(listed):
         if domain_of(mt) == "media" and mt not in _MEDIA_SAMPLE:
+            continue
+        path = targets.get(mt)
+        if domain_of(src_mt) != "raster" and path is not None and any(
+            e.kind is EdgeKind.BRIDGE
+            and e.src == Hub("raster")
+            and e.dst == Hub("vector")
+            for e in path.edges
+        ):
+            # 视频/PDF 要先渲染成位图才谈得上描摹，refine 无法廉价预检「像不像
+            # 图标」，描摹入口的启发式拒绝是设计接受的运行时行为（设计文档 §13）。
+            # 光栅源有 refine 的描摹预检兜底，不跳过。
             continue
         try:
             # review_marks 只影响 pdf2docx：不加提示段落，才看得出正文是不是空的
@@ -133,7 +146,9 @@ def test_every_listed_target_converts(key, sources, conv, tmp_path):
 @pytest.mark.parametrize(
     ("key", "absent"),
     [
-        ("png", {"text/markdown", "text/plain", "text/csv", "application/json",
+        # 贴图标类 PNG 现在可经描摹产出 Markdown（内嵌 SVG），不再是「不可能目标」；
+        # 照片 PNG 会被 refine 的描摹预检剔除（见 test_raster_to_vector.py）
+        ("png", {"text/plain", "text/csv", "application/json",
                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
         ("svg", {"text/plain", "text/csv",
                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
