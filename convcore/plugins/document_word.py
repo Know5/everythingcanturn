@@ -177,6 +177,10 @@ class PdfToWord:
         scores = [_score_page(ir.pages[i]) for i in indices]
         self._report(scores, indices, pol, options)
 
+        self._apply_header_footer(
+            dst, src, indices, pol, options.get("password")
+        )
+
         if options.get("review_marks", True):
             self._annotate(dst, scores, ir, pol)
 
@@ -189,6 +193,134 @@ class PdfToWord:
             progress(1.0, "完成")
 
         return [Resource(media_type=target, path=dst)]
+
+    def _repeated_margin_text(
+        self, src: Path, indices: list[int], password: str | None = None
+    ) -> tuple[list[str], list[str]]:
+        """从 PDF 页边距提取跨页重复的页眉/页脚文本。
+
+        只返回在至少一半选中页重复出现的短文本；单页文档不搬，避免把正文标题
+        当成页眉。页码/纯数字不搬——它们应该由 Word 的 PAGE 域生成。
+        """
+        import re
+        from collections import Counter
+
+        import pymupdf
+
+        if len(indices) < 2:
+            return [], []
+
+        def clean(text: str) -> str:
+            return re.sub(r"\s+", " ", text or "").strip()
+
+        def is_page_number(text: str) -> bool:
+            t = text.strip().lower()
+            return bool(
+                re.fullmatch(r"(?:page\s*)?\d+(?:\s*(?:/|of)\s*\d+)?", t)
+                or re.fullmatch(r"[ivxlcdm]+", t)
+            )
+
+        top: Counter[str] = Counter()
+        bottom: Counter[str] = Counter()
+        order: dict[str, tuple[int, float, float]] = {}
+        display: dict[str, str] = {}
+        with pymupdf.open(src) as doc:
+            if doc.needs_pass and password:
+                doc.authenticate(password)
+            for index in indices:
+                page = doc[index]
+                height = float(page.rect.height)
+                for block in page.get_text("blocks"):
+                    if len(block) < 7 or block[6] != 0:
+                        continue
+                    text = clean(block[4])
+                    if len(text) < 2 or len(text) > 80 or is_page_number(text):
+                        continue
+                    y0, y1 = float(block[1]), float(block[3])
+                    key = text.lower()
+                    display.setdefault(key, text)
+                    order.setdefault(key, (index, y0, float(block[0])))
+                    if y1 < 55:
+                        top[key] += 1
+                    elif y0 > height - 55:
+                        bottom[key] += 1
+
+        threshold = max(2, (len(indices) + 1) // 2)
+
+        def pick(counter: Counter[str]) -> list[str]:
+            kept = [k for k, n in counter.items() if n >= threshold]
+            kept.sort(key=lambda k: (order[k][1], order[k][2]))
+            return [display[k] for k in kept]
+
+        return pick(top), pick(bottom)
+
+    def _apply_header_footer(
+        self,
+        docx_path: Path,
+        src: Path,
+        indices: list[int],
+        pol: Policy,
+        password: str | None = None,
+    ) -> None:
+        """把跨页重复的页眉/页脚从正文搬到 Word 的 header/footer。
+
+        pdf2docx 通常把它们当普通段落写进每页正文；不搬走的话，用户编辑正文时
+        会不断碰到这些重复行，打印时也会占正文空间。
+        """
+        try:
+            import re
+
+            import docx
+
+            headers, footers = self._repeated_margin_text(src, indices, password)
+            if not headers and not footers:
+                return
+
+            doc = docx.Document(str(docx_path))
+            targets = {
+                re.sub(r"\s+", " ", (t or "")).strip().lower()
+                for t in headers + footers
+            }
+            removed = 0
+            for paragraph in list(doc.paragraphs):
+                key = re.sub(r"\s+", " ", paragraph.text or "").strip().lower()
+                if key and key in targets:
+                    parent = paragraph._element.getparent()
+                    if parent is not None:
+                        parent.remove(paragraph._element)
+                        removed += 1
+
+            from docx.shared import Pt
+
+            for section in doc.sections:
+                if headers:
+                    section.header.is_linked_to_previous = False
+                    hp = section.header.paragraphs[0]
+                    hp.text = "  ·  ".join(headers)
+                    for run in hp.runs:
+                        run.font.size = Pt(9)
+                if footers:
+                    section.footer.is_linked_to_previous = False
+                    fp = section.footer.paragraphs[0]
+                    fp.text = "  ·  ".join(footers)
+                    for run in fp.runs:
+                        run.font.size = Pt(8)
+
+            if removed or headers or footers:
+                doc.save(str(docx_path))
+                bits = []
+                if headers:
+                    bits.append(f"页眉「{headers[0]}」")
+                if footers:
+                    bits.append(f"页脚「{footers[0]}」")
+                pol.note(
+                    "页眉页脚",
+                    Strategy.APPROXIMATE,
+                    "已把跨页重复的 " + "、".join(bits) + " 搬进 Word 页眉/页脚",
+                )
+        except Exception:
+            # 页眉页脚是增强项；失败不能破坏已生成的文档
+            pass
 
     def _heading_outline(
         self, src: Path, indices: list[int], password: str | None = None
@@ -379,7 +511,8 @@ class PdfToWord:
             raise ConversionError(
                 f"这份 PDF 没有文本层（{len(ir.scanned_pages)}/{ir.page_count} 页是扫描图像），"
                 "版面还原只能产出图片而非可编辑文字。\n"
-                "扫描件转 Word 需要先做 OCR，本项目暂未集成（需要 Tesseract 中文包约 50MB）。\n"
+                "扫描件转 Word 需要先做 OCR：安装 Tesseract 后可直接走 OCR 路径\n"
+                "（扫描 PDF → Markdown/Word），中文需额外 chi_sim 语言包。\n"
                 "现在可以做的：转成图片（-t png）留档，或用 --pages 只转有文本层的页。"
             )
 

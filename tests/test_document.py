@@ -406,3 +406,28 @@ def test_pdf_table_mode_lattice_keeps_ruled_tables(pdfs, tmp_path):
     assert [c.text.strip() for c in d.tables[0].rows[0].cells] == [
         "Region", "Q1", "Q2", "Q3"
     ]
+
+
+def test_pdf_to_word_moves_repeated_header_footer(tmp_path):
+    """跨页重复的页眉/页脚应搬进 Word header/footer，而不是每页正文。"""
+    import pymupdf
+
+    src = tmp_path / "header-footer.pdf"
+    doc = pymupdf.open()
+    for i in range(3):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((60, 30), "ACME Report", fontsize=10)
+        page.insert_text((60, 812), "Confidential", fontsize=9)
+        page.insert_text((60, 80), f"Section {i + 1}", fontsize=16)
+        page.insert_text((60, 120), "Body text " * 10, fontsize=10)
+    doc.save(src)
+    doc.close()
+
+    res = convert_file(src, "docx", out_dir=tmp_path, overwrite=True)
+    d = _docx(res.outputs[0].path)
+    assert d.sections[0].header.paragraphs[0].text == "ACME Report"
+    assert d.sections[0].footer.paragraphs[0].text == "Confidential"
+    body = "\n".join(p.text for p in d.paragraphs)
+    assert "ACME Report" not in body
+    assert "Confidential" not in body
+    assert any("页眉页脚" in w for w in res.warnings)
