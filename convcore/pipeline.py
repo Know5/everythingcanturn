@@ -244,13 +244,22 @@ class Converter:
         except Exception:
             pass  # 探测失败按静态路径走，不要把转换整体拦掉
 
-        path = self.plan(
-            src,
-            target,
-            max_mats=req.max_materializations,
-            allow_identity=identity_ok,
-            lacks=lacks,
-        )
+        try:
+            path = self.plan(
+                src,
+                target,
+                max_mats=req.max_materializations,
+                allow_identity=identity_ok,
+                lacks=lacks,
+            )
+        except NoPathError as exc:
+            if "text" in lacks:
+                raise ConversionError(
+                    "这份 PDF 没有文本层（扫描件）。转 Word/Markdown 需要 OCR：\n"
+                    "  pip install -e \".[ocr]\" 并安装 Tesseract；\n"
+                    "  也可以先转成图片（-t png）留档。"
+                ) from exc
+            raise
         pol = policy_mod.policy_from_options(opts)
 
         started = time.perf_counter()
