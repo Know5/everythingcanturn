@@ -233,6 +233,10 @@ pytest tests/test_sniff.py -k heic
 
 # 覆盖率
 pytest --cov=convcore --cov-report=html
+
+# PDF→Word 能力基准：公开样本下载到 benchmarks/samples/，产物在 benchmarks/work/
+python benchmarks/fetch_samples.py
+python benchmarks/pdf_word_bench.py
 ```
 
 依赖可选包或外部引擎（ffmpeg、soffice、pillow-heif 等）的用例在缺依赖时自动跳过。

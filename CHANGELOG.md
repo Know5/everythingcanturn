@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   新增 `pdf_heading_styles`，按字号/字重把推断标题映射为 Word Heading 1–3，
   保留直接格式并让导航窗格/目录可用。CLI 对应 `--pdf-table-mode` 与
   `--no-pdf-heading-styles`
+- 新增 `benchmarks/` 能力基准：公开 arXiv 论文、IRS W-9、CC0 扫描件样本，下载脚本与
+  `pdf_word_bench.py` 记录文本召回、标题/表格/图片/文本框数量与耗时；
+  样本和产物只写入项目目录（`benchmarks/samples`、`benchmarks/work`，均不入库）
 
 ### Fixed
 - 拖入文件被 WebView2 当成导航目标打开：全局 `dragover`/`drop` 的 `preventDefault`

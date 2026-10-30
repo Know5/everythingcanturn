@@ -24,6 +24,7 @@ from ..ir.document import Confidence, DocumentRef
 from ..policy import Policy, Strategy
 from ..registry import register
 from ..types import Capability, ConversionError, LossTier, MediaType, Resource
+from ._quiet import quiet_stderr
 from ._scratch import workdir
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -199,11 +200,12 @@ class PdfToWord:
         目录和后续自动化都看不到章节。
         """
         import re
-        from collections import defaultdict
+        from collections import Counter, defaultdict
 
         import pymupdf
 
         sizes: dict[float, int] = defaultdict(int)
+        block_counts: Counter[str] = Counter()
         pages: list[Any] = []
         with pymupdf.open(src) as doc:
             if doc.needs_pass and password:
@@ -211,10 +213,27 @@ class PdfToWord:
             for index in indices:
                 page = doc[index]
                 data = page.get_text("dict")
-                pages.append((float(page.rect.height), data))
+                try:
+                    with quiet_stderr():
+                        table_boxes = [
+                            tuple(t.bbox) for t in page.find_tables().tables
+                        ]
+                except Exception:
+                    table_boxes = []
+                pages.append((float(page.rect.height), data, table_boxes))
                 for block in data.get("blocks", []):
                     if block.get("type") != 0:
                         continue
+                    block_text = re.sub(
+                        r"\s+",
+                        " ",
+                        " ".join(
+                            "".join(s.get("text", "") for s in line.get("spans", []))
+                            for line in block.get("lines", [])
+                        ),
+                    ).strip().lower()
+                    if block_text:
+                        block_counts[block_text] += 1
                     for line in block.get("lines", []):
                         for span in line.get("spans", []):
                             text = (span.get("text") or "").strip()
@@ -229,13 +248,21 @@ class PdfToWord:
 
         outline: list[tuple[str, int]] = []
         seen: set[str] = set()
-        for height, data in pages:
+        for height, data, table_boxes in pages:
             for block in data.get("blocks", []):
                 if block.get("type") != 0:
                     continue
                 bbox = block.get("bbox") or (0, 0, 0, 0)
                 if bbox[3] < 40 or bbox[1] > height - 40:
                     continue  # 页眉/页脚/页码不参与标题推断
+                if any(
+                    box[0] <= bbox[0]
+                    and box[1] <= bbox[1]
+                    and box[2] >= bbox[2]
+                    and box[3] >= bbox[3]
+                    for box in table_boxes
+                ):
+                    continue  # 表格单元格里的表单标签不是标题
                 spans = [
                     span
                     for line in block.get("lines", [])
@@ -266,6 +293,10 @@ class PdfToWord:
                     continue
                 if normalized in seen:
                     continue
+                if block_counts.get(normalized, 0) >= 2:
+                    continue  # 跨页重复的页眉/页脚/表单编号
+                if re.match(r"line\s+\d", normalized):
+                    continue  # 表单行标签不是章节标题
                 size = max(float(s.get("size", 0)) for s in spans)
                 ratio = size / body
                 if ratio >= 1.5:

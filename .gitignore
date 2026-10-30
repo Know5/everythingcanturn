@@ -33,3 +33,7 @@ ui/.vite/
 
 # 桌面端前端构建产物（ui/ 里 npm run build 生成）
 convcore/webui/static/gui/
+
+# 能力基准的公开样本与产物（本地下载，不入库）
+benchmarks/samples/*.pdf
+benchmarks/work/
