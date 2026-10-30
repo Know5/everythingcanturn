@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EPUB 章节图片解析**：读 EPUB 时把章节里的相对图片路径内嵌为 data URI，
   转 Markdown/HTML/DOCX 不再丢图
 - **DOCX 页眉/页脚图片**：解析时提取页眉页脚图片并放在正文首尾，正文图片逻辑不变
-- **PDF→Word 页眉页脚与页码**：跨页重复的页眉/页脚从正文段落搬进 Word 的
-  header/footer；页脚/页眉页码转为 Word PAGE 域，不再留静态数字；单页文档不搬，
+- **PDF→Word 页眉页脚与页码**：按页提取页眉/页脚并映射到对应 Word section；
+  支持每页不同页眉；页码转为 Word PAGE 域，不再留静态数字；单页文档不搬，
   避免误伤标题
 - **PDF→Word 跨页表格**：相邻表格列数、表头一致且中间只有分页/分节/表外残留行时
   合并为一张，重复表头只保留一次；表外最后一行会按制表符补回表内

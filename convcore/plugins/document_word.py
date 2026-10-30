@@ -195,70 +195,14 @@ class PdfToWord:
 
         return [Resource(media_type=target, path=dst)]
 
-    def _repeated_margin_text(
+    def _page_margin_info(
         self, src: Path, indices: list[int], password: str | None = None
-    ) -> tuple[list[str], list[str]]:
-        """从 PDF 页边距提取跨页重复的页眉/页脚文本。
+    ) -> list[dict[str, Any]]:
+        """按页提取页边距文字、页码位置和页码原文。
 
-        只返回在至少一半选中页重复出现的短文本；单页文档不搬，避免把正文标题
-        当成页眉。页码/纯数字不搬——它们应该由 Word 的 PAGE 域生成。
+        不要求页眉跨页重复：不同章节使用不同页眉是正常排版。调用方只在
+        多页转换时应用，单页仍然不搬，避免把正文大标题误判成页眉。
         """
-        import re
-        from collections import Counter
-
-        import pymupdf
-
-        if len(indices) < 2:
-            return [], []
-
-        def clean(text: str) -> str:
-            return re.sub(r"\s+", " ", text or "").strip()
-
-        def is_page_number(text: str) -> bool:
-            t = text.strip().lower()
-            return bool(
-                re.fullmatch(r"(?:page\s*)?\d+(?:\s*(?:/|of)\s*\d+)?", t)
-                or re.fullmatch(r"[ivxlcdm]+", t)
-            )
-
-        top: Counter[str] = Counter()
-        bottom: Counter[str] = Counter()
-        order: dict[str, tuple[int, float, float]] = {}
-        display: dict[str, str] = {}
-        with pymupdf.open(src) as doc:
-            if doc.needs_pass and password:
-                doc.authenticate(password)
-            for index in indices:
-                page = doc[index]
-                height = float(page.rect.height)
-                for block in page.get_text("blocks"):
-                    if len(block) < 7 or block[6] != 0:
-                        continue
-                    text = clean(block[4])
-                    if len(text) < 2 or len(text) > 80 or is_page_number(text):
-                        continue
-                    y0, y1 = float(block[1]), float(block[3])
-                    key = text.lower()
-                    display.setdefault(key, text)
-                    order.setdefault(key, (index, y0, float(block[0])))
-                    if y1 < 55:
-                        top[key] += 1
-                    elif y0 > height - 55:
-                        bottom[key] += 1
-
-        threshold = max(2, (len(indices) + 1) // 2)
-
-        def pick(counter: Counter[str]) -> list[str]:
-            kept = [k for k, n in counter.items() if n >= threshold]
-            kept.sort(key=lambda k: (order[k][1], order[k][2]))
-            return [display[k] for k in kept]
-
-        return pick(top), pick(bottom)
-
-    def _page_number_info(
-        self, src: Path, indices: list[int], password: str | None = None
-    ) -> tuple[str | None, set[str]]:
-        """识别页边距里的页码，返回 (位置, 每页原文)。"""
         import re
 
         import pymupdf
@@ -271,30 +215,62 @@ class PdfToWord:
             re.compile(r"^-\s*\d{1,4}\s*-$"),
             re.compile(r"^第\s*\d{1,4}\s*页$"),
         )
-        found: dict[str, int] = {"top": 0, "bottom": 0}
-        texts: set[str] = set()
+
+        def clean(text: str) -> str:
+            return re.sub(r"\s+", " ", text or "").strip()
+
+        def is_page_number(text: str) -> bool:
+            return any(pattern.match(text) for pattern in patterns)
+
+        out: list[dict[str, Any]] = []
         with pymupdf.open(src) as doc:
             if doc.needs_pass and password:
                 doc.authenticate(password)
             for index in indices:
                 page = doc[index]
                 height = float(page.rect.height)
+                top: list[tuple[float, float, str]] = []
+                bottom: list[tuple[float, float, str]] = []
+                page_hits: list[tuple[str, str]] = []
                 for block in page.get_text("blocks"):
                     if len(block) < 7 or block[6] != 0:
                         continue
-                    text = re.sub(r"\s+", " ", block[4] or "").strip()
-                    if not text or not any(p.match(text) for p in patterns):
+                    text = clean(block[4])
+                    if not text:
                         continue
                     y0, y1 = float(block[1]), float(block[3])
-                    where = "top" if y1 < 55 else ("bottom" if y0 > height - 55 else None)
-                    if where:
-                        found[where] += 1
-                        texts.add(text)
+                    where = (
+                        "top" if y1 < 55
+                        else "bottom" if y0 > height - 55
+                        else None
+                    )
+                    if is_page_number(text):
+                        if where:
+                            page_hits.append((where, text))
+                        continue
+                    if len(text) > 80 or not where:
+                        continue
+                    (top if where == "top" else bottom).append(
+                        (y0, float(block[0]), text)
+                    )
 
-        where = max(found, key=found.get)
-        if found[where] < max(2, (len(indices) + 1) // 2):
-            return None, set()
-        return where, texts
+                top.sort()
+                bottom.sort()
+                page_where = None
+                if page_hits:
+                    counts: dict[str, int] = {}
+                    for where, _ in page_hits:
+                        counts[where] = counts.get(where, 0) + 1
+                    page_where = max(counts, key=counts.get)
+                out.append(
+                    {
+                        "header": "  ·  ".join(item[2] for item in top),
+                        "footer": "  ·  ".join(item[2] for item in bottom),
+                        "pageWhere": page_where,
+                        "pageTexts": {text for _, text in page_hits},
+                    }
+                )
+        return out
 
     @staticmethod
     def _add_page_field(paragraph) -> None:
@@ -327,26 +303,34 @@ class PdfToWord:
         pol: Policy,
         password: str | None = None,
     ) -> None:
-        """把跨页重复的页眉/页脚从正文搬到 Word 的 header/footer。
+        """把每页页眉/页脚搬进对应 Word section，并把页码转成 PAGE 域。
 
-        pdf2docx 通常把它们当普通段落写进每页正文；不搬走的话，用户编辑正文时
-        会不断碰到这些重复行，打印时也会占正文空间。
+        pdf2docx 通常把页眉页脚当正文段落；不同章节的页眉还各不相同。这里按
+        页建立 header/footer 文本，再按 section 顺序映射。单页文档不搬，避免
+        把正文标题误判成页眉。
         """
+        if len(indices) < 2:
+            return
         try:
             import re
 
             import docx
+            from docx.shared import Pt
 
-            headers, footers = self._repeated_margin_text(src, indices, password)
-            page_where, page_texts = self._page_number_info(src, indices, password)
+            infos = self._page_margin_info(src, indices, password)
+            headers = {info["header"] for info in infos if info["header"]}
+            footers = {info["footer"] for info in infos if info["footer"]}
+            page_texts = {
+                text for info in infos for text in info.get("pageTexts", set())
+            }
             if not headers and not footers and not page_texts:
                 return
 
             doc = docx.Document(str(docx_path))
             targets = {
-                re.sub(r"\s+", " ", (t or "")).strip().lower()
-                for t in headers + footers
-            } | {t.lower() for t in page_texts}
+                re.sub(r"\s+", " ", text).strip().lower()
+                for text in headers | footers | page_texts
+            }
             removed = 0
             for paragraph in list(doc.paragraphs):
                 key = re.sub(r"\s+", " ", paragraph.text or "").strip().lower()
@@ -356,48 +340,61 @@ class PdfToWord:
                         parent.remove(paragraph._element)
                         removed += 1
 
-            from docx.shared import Pt
+            sections = doc.sections
+            if len(sections) == len(infos):
+                per_section = infos
+            else:
+                # section 数不等于页数时只能顺序近似；超出部分留空，不复制末页页眉
+                per_section = [
+                    infos[i] if i < len(infos) else {
+                        "header": "", "footer": "", "pageWhere": None,
+                    }
+                    for i in range(len(sections))
+                ]
+                pol.note(
+                    "页眉页脚",
+                    Strategy.APPROXIMATE,
+                    f"Word section 数（{len(sections)}）与页数（{len(infos)}）不一致，"
+                    "按顺序近似映射",
+                )
 
-            for section in doc.sections:
-                if headers:
-                    section.header.is_linked_to_previous = False
-                    hp = section.header.paragraphs[0]
-                    hp.text = "  ·  ".join(headers)
-                    for run in hp.runs:
-                        run.font.size = Pt(9)
-                if footers:
-                    section.footer.is_linked_to_previous = False
-                    fp = section.footer.paragraphs[0]
-                    fp.text = "  ·  ".join(footers)
-                    for run in fp.runs:
-                        run.font.size = Pt(8)
-                if page_where == "top":
-                    section.header.is_linked_to_previous = False
-                    hp = section.header.paragraphs[0]
+            for i, section in enumerate(sections):
+                info = per_section[i]
+                section.header.is_linked_to_previous = False
+                section.footer.is_linked_to_previous = False
+                hp = section.header.paragraphs[0]
+                hp.text = info.get("header", "")
+                for run in hp.runs:
+                    run.font.size = Pt(9)
+
+                fp = section.footer.paragraphs[0]
+                fp.text = info.get("footer", "")
+                for run in fp.runs:
+                    run.font.size = Pt(8)
+
+                where = info.get("pageWhere")
+                if where == "top":
                     if hp.text:
                         hp.add_run("  ·  ")
                     self._add_page_field(hp)
-                elif page_where == "bottom":
-                    section.footer.is_linked_to_previous = False
-                    fp = section.footer.paragraphs[0]
+                elif where == "bottom":
                     if fp.text:
                         fp.add_run("  ·  ")
                     self._add_page_field(fp)
 
             if removed or headers or footers or page_texts:
                 doc.save(str(docx_path))
-                bits = []
+                parts = []
                 if headers:
-                    bits.append(f"页眉「{headers[0]}」")
+                    parts.append(f"{len(headers)} 种页眉")
                 if footers:
-                    bits.append(f"页脚「{footers[0]}」")
-                msg = ""
-                if bits:
-                    msg = "已把跨页重复的 " + "、".join(bits) + " 搬进 Word 页眉/页脚"
+                    parts.append(f"{len(footers)} 种页脚")
                 if page_texts:
-                    msg += ("；" if msg else "") + "页码已转为 PAGE 域"
-                if msg:
-                    pol.note("页眉页脚", Strategy.APPROXIMATE, msg)
+                    parts.append("页码")
+                msg = "已把每页的 " + "、".join(parts) + " 搬进 Word 页眉/页脚"
+                if page_texts:
+                    msg += "；页码已转为 PAGE 域"
+                pol.note("页眉页脚", Strategy.APPROXIMATE, msg)
         except Exception:
             # 页眉页脚是增强项；失败不能破坏已生成的文档
             pass

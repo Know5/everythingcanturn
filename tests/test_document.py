@@ -487,3 +487,28 @@ def test_pdf_to_word_merges_split_table(tmp_path):
     assert [c.text for c in d.tables[0].rows[0].cells] == ["Name", "Q1", "Q2", "Q3"]
     assert [c.text for c in d.tables[0].rows[-1].cells][0] == "row24"
     assert any("跨页表格" in w for w in res.warnings)
+
+
+def test_pdf_to_word_maps_different_headers_per_page(tmp_path):
+    """不同页的页眉应进入对应 Word section，而不是全部用第一页。"""
+    import pymupdf
+
+    src = tmp_path / "per-page-headers.pdf"
+    doc = pymupdf.open()
+    for i, chapter in enumerate(("Chapter A", "Chapter B", "Chapter C")):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((60, 30), chapter, fontsize=10)
+        page.insert_text((60, 812), "Confidential", fontsize=9)
+        page.insert_text((60, 80), f"Section {i + 1}", fontsize=16)
+    doc.save(src)
+    doc.close()
+
+    res = convert_file(src, "docx", out_dir=tmp_path, overwrite=True)
+    d = _docx(res.outputs[0].path)
+    assert [s.header.paragraphs[0].text for s in d.sections] == [
+        "Chapter A", "Chapter B", "Chapter C",
+    ]
+    assert {s.footer.paragraphs[0].text for s in d.sections} == {"Confidential"}
+    body = "\n".join(p.text for p in d.paragraphs)
+    assert "Chapter A" not in body
+    assert "Confidential" not in body
