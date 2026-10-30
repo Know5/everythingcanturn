@@ -50,7 +50,8 @@ class DocxCodec:
     name = "python-docx"
     domain = "markup"
     reads = (Capability(DOCX, LossTier.STRUCTURAL, 3.0),)
-    """读入是 STRUCTURAL：DOCX 的分页、页眉页脚、批注、修订映射不进 DocTree。"""
+    """读入是 STRUCTURAL：DOCX 的分页、页眉页脚文字、批注、修订映射不进 DocTree；
+    页眉/页脚里的图片会尽量提取。"""
     # 要求有文字：原始 SVG 块塞不进 Word（见 _emit），SVG→Word 只会得到空文档。
     # 图片写成 [图片 label] 占位、RAW 丢弃——是结构性简化，不是无损
     writes = (
@@ -84,6 +85,30 @@ class DocxCodec:
             except (AttributeError, ValueError):
                 pass  # 个别 latent 样式没有可读的 style_id
 
+        header_blocks: list[Block] = []
+        footer_blocks: list[Block] = []
+        seen_header_parts: set[str] = set()
+        for section in d.sections:
+            for container, dest, label in (
+                (section.header, header_blocks, "DOCX 页眉图片"),
+                (section.footer, footer_blocks, "DOCX 页脚图片"),
+            ):
+                if container.is_linked_to_previous:
+                    continue
+                for para in container.paragraphs:
+                    dest.extend(
+                        self._para_images(para, alt=label, seen=seen_header_parts)
+                    )
+                for tbl in container.tables:
+                    for row in tbl.rows:
+                        for cell in row.cells:
+                            for para in cell.paragraphs:
+                                dest.extend(
+                                    self._para_images(
+                                        para, alt=label, seen=seen_header_parts
+                                    )
+                                )
+
         raw: list[Block] = []
         # 按文档顺序遍历段落和表格。python-docx 的 paragraphs 和 tables 是
         # 分开的列表，直接拼会丢失原始顺序，得走底层 body 元素。
@@ -98,14 +123,21 @@ class DocxCodec:
                 tbl = docx.table.Table(child, d)
                 raw.append(self._table(tbl))
 
-        blocks = _coalesce(raw)
+        blocks = _coalesce(header_blocks + raw + footer_blocks)
         extracted = sum(1 for b in blocks if b.kind == IMAGE)
         if len(d.inline_shapes) > extracted:
             pol.note(
                 "图片",
                 Strategy.DROP,
                 f"{len(d.inline_shapes) - extracted} 张内嵌图片未提取"
-                "（表格/页眉页脚中的图片暂不处理）",
+                "（表格中的图片暂不处理）",
+            )
+        if header_blocks or footer_blocks:
+            pol.note(
+                "页眉页脚图片",
+                Strategy.EMULATE,
+                f"已提取 {len(header_blocks) + len(footer_blocks)} 张页眉/页脚图片"
+                "并放在正文首尾",
             )
 
         props = d.core_properties
@@ -122,7 +154,9 @@ class DocxCodec:
                     break
         return tree
 
-    def _para_images(self, para) -> list[Block]:
+    def _para_images(
+        self, para, *, alt: str = "DOCX image", seen: set[str] | None = None
+    ) -> list[Block]:
         """提取段落里的内嵌图（w:drawing → a:blip → image part）。"""
         import base64
 
@@ -136,12 +170,17 @@ class DocxCodec:
             part = para.part.related_parts.get(rid)
             if part is None or not getattr(part, "blob", None):
                 continue
+            if seen is not None:
+                key = str(getattr(part, "partname", rid))
+                if key in seen:
+                    continue
+                seen.add(key)
             ctype = getattr(part, "content_type", "image/png")
             if "svg" in ctype:
                 continue  # DOCX 的 SVG 通常还有 PNG 回退，单独处理容易重复
             data = base64.b64encode(part.blob).decode("ascii")
             out.append(
-                Block(IMAGE, src=f"data:{ctype};base64,{data}", alt="DOCX image")
+                Block(IMAGE, src=f"data:{ctype};base64,{data}", alt=alt)
             )
         return out
 
@@ -536,7 +575,7 @@ class EpubCodec:
     name = "epub"
     domain = "markup"
     reads = (Capability(EPUB, LossTier.STRUCTURAL, 3.0),)
-    # 图片目前只写外链不嵌资源，与 DOCX 写侧同理：结构性简化
+    # 写侧会打包 data URI/本地图片；读侧把章节相对路径图片内嵌为 data URI
     writes = (
         Capability(EPUB, LossTier.STRUCTURAL, 3.0,
                    frozenset({"title", "author", "lang"}), fidelity=0.85),
@@ -587,6 +626,8 @@ class EpubCodec:
 
             blocks: list[Block] = []
             chapters = 0
+            image_cache: dict[str, str] = {}
+            embedded = 0
             for ref in opf.findall(".//opf:spine/opf:itemref", ns):
                 href = id_to_href.get(ref.get("idref"))
                 if not href:
@@ -598,6 +639,9 @@ class EpubCodec:
                 except KeyError:
                     continue
                 sub = rd.parse_html(chunk)
+                embedded += self._embed_chapter_images(
+                    sub.blocks, zf, full, image_cache
+                )
                 if sub.blocks:
                     blocks.extend(sub.blocks)
                     chapters += 1
@@ -607,10 +651,67 @@ class EpubCodec:
             Strategy.DROP,
             f"{chapters} 章已合并为单一文档流，章节边界、封面和元数据未保留",
         )
+        if embedded:
+            pol.note(
+                "图片",
+                Strategy.EMULATE,
+                f"{embedded} 张 EPUB 章节图片已内嵌为 data URI",
+            )
 
         return DocTree(
             blocks=blocks, title=title, author=author, lang=lang, source_type=EPUB
         )
+
+    def _embed_chapter_images(
+        self,
+        blocks: list[Block],
+        zf: zipfile.ZipFile,
+        chapter_path: str,
+        cache: dict[str, str],
+    ) -> int:
+        """把章节里的相对图片路径换成 data URI，避免丢图。"""
+        import base64
+        import mimetypes
+        import posixpath
+        import re
+
+        chapter_dir = posixpath.dirname(chapter_path)
+        embedded = 0
+
+        def embed(block: Block) -> None:
+            nonlocal embedded
+            if block.kind == IMAGE and block.src:
+                src = block.src.strip()
+                if not src or src.startswith(("data:", "http://", "https://")):
+                    pass
+                else:
+                    rel = re.split(r"[?#]", src, maxsplit=1)[0]
+                    rel = posixpath.normpath(posixpath.join(chapter_dir, rel))
+                    if rel.startswith("../"):
+                        rel = rel.lstrip("../")
+                    rel = rel.lstrip("/")
+                    if rel not in cache:
+                        try:
+                            raw = zf.read(rel)
+                        except KeyError:
+                            return
+                        mime = mimetypes.guess_type(rel)[0] or "application/octet-stream"
+                        cache[rel] = (
+                            f"data:{mime};base64,"
+                            + base64.b64encode(raw).decode("ascii")
+                        )
+                    block.src = cache[rel]
+                    embedded += 1
+            for child in block.children:
+                embed(child)
+            for cell in block.rows:
+                for c in cell:
+                    for b in c.blocks:
+                        embed(b)
+
+        for b in blocks:
+            embed(b)
+        return embedded
 
     def _find_opf(self, zf: zipfile.ZipFile) -> str:
         from lxml import etree

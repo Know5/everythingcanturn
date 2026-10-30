@@ -217,7 +217,7 @@ def test_docx_parser_extracts_inline_images(tmp_path):
     import docx
     from PIL import Image
 
-    from convcore.ir.markup import IMAGE
+    from convcore.ir.markup import IMAGE, PARAGRAPH
     from convcore.plugins.office import DocxCodec
     from convcore.types import Resource
 
@@ -267,3 +267,64 @@ def test_epub_writer_packages_images(tmp_path):
         assert b'media-type="image/png"' in archive.read("OEBPS/content.opf")
         chapter = archive.read("OEBPS/ch001.xhtml").decode("utf-8")
         assert 'src="images/img001.png"' in chapter
+
+
+def test_docx_parser_extracts_header_images(tmp_path):
+    """页眉里的 logo 也应进入 DocTree，并保留正文。"""
+    import docx
+
+    from convcore.ir.markup import IMAGE, PARAGRAPH
+    from convcore.plugins.office import DocxCodec
+    from convcore.types import Resource
+
+    image = tmp_path / "logo.png"
+    Image.new("RGB", (24, 16), "red").save(image)
+    document = docx.Document()
+    document.add_paragraph("body text")
+    document.sections[0].header.paragraphs[0].add_run().add_picture(str(image))
+    path = tmp_path / "header-image.docx"
+    document.save(path)
+
+    tree = DocxCodec().parse(
+        [
+            Resource(
+                media_type=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                path=path,
+            )
+        ],
+        {},
+    )
+    assert any(
+        b.kind == IMAGE and b.alt == "DOCX 页眉图片" and (b.src or "").startswith("data:image/png")
+        for b in tree.blocks
+    )
+    assert any(b.text == "body text" for b in tree.blocks if b.kind == PARAGRAPH)
+
+
+def test_epub_parser_embeds_relative_images(tmp_path):
+    """EPUB 章节里的相对图片路径应转成 data URI，不能丢图。"""
+    import base64
+    import io
+
+    from convcore.ir.markup import HEADING, IMAGE, PARAGRAPH, Block, DocTree, Span
+    from convcore.plugins.office import EpubCodec
+
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "blue").save(buf, "PNG")
+    src = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    tree = DocTree(
+        blocks=[
+            Block(HEADING, spans=[Span("Title")], level=1),
+            Block(PARAGRAPH, spans=[Span("text")]),
+            Block(IMAGE, src=src, alt="blue"),
+        ]
+    )
+    resource = EpubCodec().write(tree, "application/epub+zip", {})[0]
+    parsed = EpubCodec().parse([resource], {})
+    assert any(
+        b.kind == IMAGE and (b.src or "").startswith("data:image/png;base64,")
+        for b in parsed.blocks
+    )
