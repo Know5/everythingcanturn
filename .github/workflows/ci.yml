@@ -50,10 +50,27 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[all,dev]" -c requirements.lock.txt
 
+      - name: Cache FFmpeg engine
+        # gyan.dev 偶尔 503；缓存成功安装的引擎，避免每个矩阵任务重复下载。
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/convcore/engines
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('convcore/engines/manifest.py') }}
+          restore-keys: |
+            ffmpeg-${{ runner.os }}-
+
       - name: Install FFmpeg engine
         # media 域测试需要 ffmpeg。走项目自己的引擎安装通道，
         # 顺带验证 engines install 在干净机器上的真实可用性。
-        run: python -m convcore engines install ffmpeg --accept-hash
+        # 503 是上游 CDN 问题，批处理里再包一层退避重试。
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 5; $i++) {
+            python -m convcore engines install ffmpeg --accept-hash
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($i -lt 5) { Start-Sleep -Seconds 20 }
+          }
+          exit 1
 
       - name: Show environment diagnostics
         run: python -m convcore doctor
