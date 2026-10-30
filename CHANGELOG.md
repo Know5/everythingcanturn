@@ -45,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `requires text` 的 pdf2docx 路径。CLI 支持 `--ocr-lang` / `--ocr-dpi`，
   `doctor` 会报告 Tesseract 状态
 - **文档图片链路**：PDF→Markdown 保留内嵌图（data URI）；Markdown/HTML→DOCX 的
-  data URI/本地图片真正嵌入 `word/media`，不再只留占位符
+  data URI/本地图片真正嵌入 `word/media`；DOCX 解析提取内嵌图；EPUB 写出把图片
+  打包进 `OEBPS/images` 并登记 manifest。表格/页眉页脚图片与 EPUB 解析图片仍待补
 
 ### Fixed
 - CI 一直红：`pip install .[all,dev]` 会拉到 PyMuPDF 2.0 / Pillow 13 / ReportLab 5.1，

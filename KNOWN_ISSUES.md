@@ -61,10 +61,10 @@
    抽不到时报「PDF 中未找到可提取的表格」（实测只有标题和段落的 HTML 就是这样）；
    纯文本则常被 pdfplumber 当成单列表格抽出来。
 
-8. **图片在文档链路里仍不完整**
-   PDF→Markdown 已把 PDF 内嵌图写成 data URI；DOCX 写出支持嵌入 data URI/本地图片。
-   仍缺：DOCX 解析时不提取内嵌图；EPUB 写出仍是占位/外链。排版侧（DocTree→PDF）
-   已支持嵌入，见 `tests/test_document_fidelity.py`。
+8. **图片在文档链路里基本打通**
+   PDF→Markdown 保留内嵌图（data URI）；DOCX 解析/写出都处理内嵌图；EPUB 写出把
+   图片打包进 `OEBPS/images` 并登记 manifest。仍缺：表格单元格/页眉页脚里的图片，
+   以及 EPUB 解析时把章节图片映射回 data URI。排版侧（DocTree→PDF）已支持嵌入。
 
 ## 三、可选依赖/引擎未装（装了即恢复）
 

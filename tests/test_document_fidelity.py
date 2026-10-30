@@ -210,3 +210,60 @@ def test_docx_writer_embeds_data_uri_images(tmp_path):
     path.write_bytes(resource.data or b"")
     with zipfile.ZipFile(path) as archive:
         assert any(n.startswith("word/media/") for n in archive.namelist())
+
+
+def test_docx_parser_extracts_inline_images(tmp_path):
+    """DOCX 里的内嵌图应进入 DocTree，后续才能转 Markdown/HTML。"""
+    import docx
+    from PIL import Image
+
+    from convcore.ir.markup import IMAGE
+    from convcore.plugins.office import DocxCodec
+    from convcore.types import Resource
+
+    image = tmp_path / "red.png"
+    Image.new("RGB", (24, 18), "red").save(image)
+    document = docx.Document()
+    document.add_paragraph("before")
+    document.add_picture(str(image))
+    document.add_paragraph("after")
+    path = tmp_path / "images.docx"
+    document.save(path)
+
+    tree = DocxCodec().parse(
+        [Resource(media_type=DocxCodec.reads[0].media_type, path=path)], {}
+    )
+    images = [b for b in tree.blocks if b.kind == IMAGE]
+    assert len(images) == 1
+    assert images[0].src and images[0].src.startswith("data:image/png;base64,")
+
+
+def test_epub_writer_packages_images(tmp_path):
+    """data URI 图片应写进 EPUB 的 OEBPS/images 并进入 manifest。"""
+    import base64
+    import io
+    import zipfile
+
+    from PIL import Image
+
+    from convcore.ir.markup import HEADING, IMAGE, Block, DocTree, Span
+    from convcore.plugins.office import EpubCodec
+
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 24), "red").save(buf, "PNG")
+    src = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    tree = DocTree(
+        blocks=[
+            Block(HEADING, spans=[Span("Title")], level=1),
+            Block(IMAGE, src=src, alt="red"),
+        ]
+    )
+    resource = EpubCodec().write(tree, "application/epub+zip", {})[0]
+    path = tmp_path / "book.epub"
+    path.write_bytes(resource.data or b"")
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        assert "OEBPS/images/img001.png" in names
+        assert b'media-type="image/png"' in archive.read("OEBPS/content.opf")
+        chapter = archive.read("OEBPS/ch001.xhtml").decode("utf-8")
+        assert 'src="images/img001.png"' in chapter

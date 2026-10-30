@@ -93,17 +93,19 @@ class DocxCodec:
                 para = docx.text.paragraph.Paragraph(child, d)
                 if (b := self._para(para, names)) is not None:
                     raw.append(b)
+                raw.extend(self._para_images(para))
             elif tag == "tbl":
                 tbl = docx.table.Table(child, d)
                 raw.append(self._table(tbl))
 
         blocks = _coalesce(raw)
-
-        if d.inline_shapes:
+        extracted = sum(1 for b in blocks if b.kind == IMAGE)
+        if len(d.inline_shapes) > extracted:
             pol.note(
                 "图片",
                 Strategy.DROP,
-                f"{len(d.inline_shapes)} 张内嵌图片未提取（转换只保留文字结构）",
+                f"{len(d.inline_shapes) - extracted} 张内嵌图片未提取"
+                "（表格/页眉页脚中的图片暂不处理）",
             )
 
         props = d.core_properties
@@ -119,6 +121,29 @@ class DocxCodec:
                     tree.title = b.text
                     break
         return tree
+
+    def _para_images(self, para) -> list[Block]:
+        """提取段落里的内嵌图（w:drawing → a:blip → image part）。"""
+        import base64
+
+        from docx.oxml.ns import qn
+
+        out: list[Block] = []
+        for blip in para._p.iter(qn("a:blip")):
+            rid = blip.get(qn("r:embed"))
+            if not rid:
+                continue
+            part = para.part.related_parts.get(rid)
+            if part is None or not getattr(part, "blob", None):
+                continue
+            ctype = getattr(part, "content_type", "image/png")
+            if "svg" in ctype:
+                continue  # DOCX 的 SVG 通常还有 PNG 回退，单独处理容易重复
+            data = base64.b64encode(part.blob).decode("ascii")
+            out.append(
+                Block(IMAGE, src=f"data:{ctype};base64,{data}", alt="DOCX image")
+            )
+        return out
 
     def _para(self, para, names: dict[str, str]) -> Block | None:
         text = para.text.strip()
@@ -636,6 +661,8 @@ class EpubCodec:
             )
             zf.writestr("META-INF/container.xml", _CONTAINER_XML)
 
+            image_items = self._package_images(chapters, zf, pol)
+
             spine_items: list[tuple[str, str, str]] = []
             for i, (heading, blocks) in enumerate(chapters, 1):
                 name = f"ch{i:03d}.xhtml"
@@ -652,7 +679,7 @@ class EpubCodec:
             zf.writestr("OEBPS/style.css", _EPUB_CSS)
             zf.writestr(
                 "OEBPS/content.opf",
-                self._opf(book_id, title, author, lang, spine_items),
+                self._opf(book_id, title, author, lang, spine_items, image_items),
             )
             zf.writestr("OEBPS/nav.xhtml", self._nav(title, lang, spine_items))
 
@@ -664,6 +691,75 @@ class EpubCodec:
         )
 
         return [Resource(media_type=target, data=buf.getvalue())]
+
+    def _package_images(
+        self,
+        chapters: list[tuple[str | None, list[Block]]],
+        zf: zipfile.ZipFile,
+        pol: Policy,
+    ) -> list[tuple[str, str, str]]:
+        """把 DocTree 里的 data URI/本地图片写进 OEBPS/images/ 并改写成相对路径。"""
+        import base64
+        import hashlib
+        from pathlib import Path
+
+        ext_by_mime = {
+            "image/png": "png",
+            "image/jpeg": "jpg",
+            "image/gif": "gif",
+            "image/webp": "webp",
+            "image/bmp": "bmp",
+            "image/tiff": "tiff",
+            "image/svg+xml": "svg",
+        }
+        seen: dict[str, str] = {}
+        items: list[tuple[str, str, str]] = []
+        skipped = 0
+        for _, blocks in chapters:
+            for block in blocks:
+                if block.kind != IMAGE or not block.src:
+                    continue
+                src = block.src
+                try:
+                    if src.startswith("data:"):
+                        header, _, payload = src.partition(",")
+                        mime = header[5:].split(";", 1)[0] or "image/png"
+                        data = base64.b64decode(payload)
+                    else:
+                        path = Path(src)
+                        if not path.is_file():
+                            skipped += 1
+                            continue
+                        data = path.read_bytes()
+                        mime = {
+                            ".jpg": "image/jpeg",
+                            ".jpeg": "image/jpeg",
+                            ".png": "image/png",
+                            ".gif": "image/gif",
+                            ".webp": "image/webp",
+                            ".svg": "image/svg+xml",
+                        }.get(path.suffix.lower(), "image/png")
+                except Exception:
+                    skipped += 1
+                    continue
+
+                ext = ext_by_mime.get(mime, "bin")
+                key = hashlib.sha1(data).hexdigest()
+                name = seen.get(key)
+                if name is None:
+                    name = f"images/img{len(seen) + 1:03d}.{ext}"
+                    seen[key] = name
+                    zf.writestr(f"OEBPS/{name}", data)
+                    items.append((f"img{len(items) + 1:03d}", name, mime))
+                block.src = name
+
+        if skipped:
+            pol.note(
+                "图片",
+                Strategy.DROP,
+                f"{skipped} 张图片不是 data URI 或本地文件，EPUB 中保留原外链",
+            )
+        return items
 
     def _split_chapters(self, ir: DocTree) -> list[tuple[str | None, list[Block]]]:
         """按一级标题切章。EPUB 需要章节划分，而 DocTree 是平的流。
@@ -696,11 +792,17 @@ class EpubCodec:
     def _opf(
         self, book_id: str, title: str, author: str, lang: str,
         items: list[tuple[str, str, str]],
+        images: list[tuple[str, str, str]] | None = None,
     ) -> str:
         manifest = "\n".join(
             f'    <item id="{i}" href="{h}" media-type="application/xhtml+xml"/>'
             for i, h, _ in items
         )
+        if images:
+            manifest += "\n" + "\n".join(
+                f'    <item id="{i}" href="{h}" media-type="{mime}"/>'
+                for i, h, mime in images
+            )
         spine = "\n".join(f'    <itemref idref="{i}"/>' for i, _, _ in items)
         creator = (
             f"\n    <dc:creator>{escape(author)}</dc:creator>" if author else ""
