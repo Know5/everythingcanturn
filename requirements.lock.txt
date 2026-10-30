@@ -61,3 +61,4 @@ pyarrow==25.0.1          # Parquet 读写 + 跨域桥的类型推断
 coverage==7.16.0
 reportlab==5.0.1         # 测试 PDF 合成（dev）
 pytest-cov==7.1.0        # CI --cov
+pytesseract==0.3.13      # OCR（需要本机 Tesseract 引擎）

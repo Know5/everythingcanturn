@@ -75,6 +75,8 @@ class Edge:
     """走这条边要求内容里有什么。见 CONTENT。"""
     lacks: frozenset[str] = frozenset()
     """这条边的产物缺什么。只有桥会设置。"""
+    opaque: bool = False
+    """产物只能作为终点，不能再继续转换。"""
 
     def describe(self) -> str:
         if self.kind is EdgeKind.READ:
@@ -295,7 +297,7 @@ class FormatGraph:
                     self._add(
                         Edge(EdgeKind.WRITE, hub, Fmt(cap.media_type),
                              cap.loss, cap.time_cost, codec, cap.fidelity,
-                             requires=cap.requires)
+                             requires=cap.requires, opaque=cap.opaque)
                     )
 
         live = registry.domains()
@@ -317,6 +319,7 @@ class FormatGraph:
         *,
         max_materializations: int = 2,
         allow_identity: bool = True,
+        lacks: frozenset[str] = frozenset(),
     ) -> Path:
         """搜索 src → dst 的最优路径。找不到抛 NoPathError。
 
@@ -337,9 +340,9 @@ class FormatGraph:
         Cost = tuple[int, int, float, float]
         State = tuple[Node, int, frozenset[str]]  # (节点, 中间物化数, 内容缺什么)
         counter = 0
-        none: frozenset[str] = frozenset()
+        initial_lacks = frozenset(lacks)
         heap: list[tuple[Cost, int, State, list[Edge], int]] = [
-            ((LossTier.COPY, 0, 0.0, 0.0), counter, (start, 0, none), [], counter)
+            ((LossTier.COPY, 0, 0.0, 0.0), counter, (start, 0, initial_lacks), [], counter)
         ]
         # 单个状态只保留一个字典序最优前缀并不安全：路径的第一项是 max，
         # 后续遇到更高损失等级的边时，原本较低等级的前缀会与其他前缀合并，
@@ -353,7 +356,7 @@ class FormatGraph:
         # 同格式重写时不能把空路径的起点加入 frontier，否则 READ→WRITE 回到
         # 起点时会被空路径支配。起点不是终点时则照常作为零代价标签。
         if start != goal:
-            frontier[(start, 0, none)] = {counter: (0, 0, 0.0, 0.0)}
+            frontier[(start, 0, initial_lacks)] = {counter: (0, 0, 0.0, 0.0)}
 
         def dominates(a: Cost, b: Cost) -> bool:
             """是否能安全地把代价 a 延伸成不差于 b 的任意后缀。"""
@@ -404,6 +407,8 @@ class FormatGraph:
                 nlacks = _step(lacks, edge)
                 if nlacks is None:
                     continue
+                if edge.opaque and edge.dst[0] == "fmt" and edge.dst != goal:
+                    continue  # OCR 文本等产物不能再当下一跳源
                 # 落到中间格式节点（不是终点）才算一次物化
                 extra = 1 if (edge.dst[0] == "fmt" and edge.dst != goal) else 0
                 nmats = mats + extra

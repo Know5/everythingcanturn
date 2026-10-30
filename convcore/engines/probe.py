@@ -70,6 +70,15 @@ ENGINES: tuple[EngineSpec, ...] = (
         enables="RAR 读取",
         size_hint="0.6MB",
     ),
+    EngineSpec(
+        "tesseract", "tesseract", ("--version",),
+        "扫描件 / 图片 OCR",
+        "装 Tesseract：https://github.com/UB-Mannheim/tesseract/wiki"
+        "（中文再装 chi_sim 语言包）",
+        tier="optional",
+        enables="扫描 PDF / 图片 → 可编辑文字、Markdown、Word",
+        size_hint="50MB",
+    ),
 )
 
 
@@ -128,6 +137,20 @@ def probe_one(spec: EngineSpec) -> EngineInfo:
         if (found := shutil.which(candidate)) is not None:
             p = Path(found)
             return EngineInfo(spec, p, _version_of(p, spec.version_args), "PATH")
+
+    # Tesseract 的 Windows 安装器不一定写进当前进程的 PATH。
+    if spec.key == "tesseract" and os.name == "nt":
+        for root in (
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+        ):
+            if not root:
+                continue
+            p = Path(root) / "Tesseract-OCR" / "tesseract.exe"
+            if p.is_file():
+                return EngineInfo(
+                    spec, p, _version_of(p, spec.version_args), "ProgramFiles"
+                )
 
     return EngineInfo(spec)
 

@@ -260,7 +260,7 @@ def pdf_to_doctree(ref, opts: dict[str, Any], pol: Policy) -> DocTree:
     这是推断而非翻译——PDF 没有「这是标题」的语义，只有「这段字号更大」。
     用字号作为标题层级的信号是最可靠的启发式，但对样式不规范的 PDF 会失效。
     """
-    from ..ir.markup import HEADING, PARAGRAPH, TABLE, Block, Span
+    from ..ir.markup import HEADING, IMAGE, PARAGRAPH, TABLE, Block, Span
     from ..policy import Strategy
     from ._quiet import quiet_stderr
 
@@ -296,13 +296,35 @@ def pdf_to_doctree(ref, opts: dict[str, Any], pol: Policy) -> DocTree:
                 page_dict = page.get_text("dict") or {}
                 items: list[tuple[tuple[float, float, float, float], Block]] = []
                 for blk in page_dict.get("blocks", []):
+                    bbox = tuple(blk.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                    if blk.get("type") == 1:
+                        # PDF 内嵌图：转成 data URI 放进 DocTree，Markdown/HTML
+                        # 才能保留图片；不再只有一句「图片未保留」。
+                        import base64
+
+                        raw = blk.get("image")
+                        if raw:
+                            ext = str(blk.get("ext") or "png").lower()
+                            if ext == "jpeg":
+                                ext = "jpg"
+                            mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+                            data = base64.b64encode(raw).decode("ascii")
+                            items.append(
+                                (
+                                    bbox,
+                                    Block(
+                                        IMAGE,
+                                        src=f"data:{mime};base64,{data}",
+                                        alt="PDF image",
+                                    ),
+                                )
+                            )
+                        continue
                     if blk.get("type") != 0:
-                        continue  # 图像块：无文本层，结尾统一告警
+                        continue
                     block = _text_block(blk, body_size)
                     if block is not None:
-                        items.append(
-                            (tuple(blk.get("bbox", (0.0, 0.0, 0.0, 0.0))), block)
-                        )
+                        items.append((bbox, block))
 
                 # 表格：find_tables 检出后转 TABLE 块；被表格 bbox 覆盖的文本块
                 # 剔除，否则整表文字会再以段落重复一遍。按纵坐标排序保持阅读序。
@@ -324,7 +346,7 @@ def pdf_to_doctree(ref, opts: dict[str, Any], pol: Policy) -> DocTree:
             "结构推断",
             Strategy.APPROXIMATE,
             "标题层级按字号相对正文的比例推断，PDF 本身不含此语义；"
-            "图片未保留（无文本层）",
+            "内嵌图片以 data URI 保留，位置按页面坐标排序",
         )
 
         tree = DocTree(blocks=blocks, source_type="application/pdf")

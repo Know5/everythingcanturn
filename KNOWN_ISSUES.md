@@ -6,7 +6,7 @@
 
 ## 一、测试覆盖率短板
 
-本机全依赖环境最近一次全量统计：**80%**（7269 语句，1468 未覆盖；384 passed / 3 skipped）。
+本机全依赖环境最近一次全量统计：**80%**（7512 语句，1483 未覆盖；388 passed / 4 skipped）。
 低于 85% 的主要模块：
 
 | 模块 | 覆盖率 | 原因 |
@@ -16,7 +16,7 @@
 | `webui/server.py` | 66% | `tests/test_webui.py` 起真实服务测安全边界和转换主路径；未覆盖原生选择框等系统集成 |
 | `desktop/app.py` | 44% | pywebview 原生窗口，需 GUI 环境；纯逻辑已移入 `uiservice.py` |
 | `engines/install.py` | 50% | 大量分支依赖真实网络下载（HTTPS/SHA256/解压），本地无法触发 |
-| `plugins/document_word.py` | 71% | pdf2docx 集成 + 标题/表格策略；失败分支与复杂版面组合仍未覆盖 |
+| `plugins/document_word.py` | 80% | pdf2docx 集成 + 标题/表格策略；失败分支与复杂版面组合仍未覆盖 |
 | `plugins/office_soffice.py` | 52% | 依赖外部 LibreOffice（soffice），当前环境未装 |
 | `plugins/image_extra.py` | 68% | 大量失败分支依赖可选包（pillow-heif/rawpy 等）未安装 |
 | `plugins/archive.py` | 59% | 各归档格式的失败分支与外部后端 |
@@ -43,10 +43,10 @@
 3. **音视频多文件合并（concat）未支持**
    `media.py:parse` 里 `len(resources) > 1` 直接抛错，注释写明"后续会加 concat 支持"。
 
-4. **扫描件 OCR 未集成**
-   `document_word.py` 的 `_preflight` 会拦截无文本层的 PDF，提示需要 OCR。
-   当前未集成 Tesseract 中文包（约 50MB）。扫描件和图片不再列出 Markdown / Word / CSV
-   这类要抽文字的目标（见 README「内容约束」），集成 OCR 后要同步放开。
+4. ~~**扫描件 OCR 未集成**~~ **已集成（2026-10-30，可选 Tesseract）**：
+   扫描 PDF / 图片可 OCR → Markdown / Word / 纯文本。需要 `pip install -e ".[ocr]"`
+   + 本机 Tesseract；中文需 `chi_sim` 语言包。输出固定 INFERRED，段落按空行切分，
+   错字/表格/标题层级需复核。
 
 5. **PSD 只读、RAW 只读**
    `PsdCodec`/`RawCodec` 的 `writes = ()`，只能作为源转出，不能作为目标。
@@ -62,9 +62,9 @@
    纯文本则常被 pdfplumber 当成单列表格抽出来。
 
 8. **图片在文档链路里仍不完整**
-   PDF→Markdown 的图片不保留（PDF 图像块没有文本层，抽取只剩占位意义）；DOCX/EPUB
-   写出的图片是文本占位/外链，不嵌入资源。排版侧（DocTree→PDF）已支持嵌入，见
-   `tests/test_document_fidelity.py`。
+   PDF→Markdown 已把 PDF 内嵌图写成 data URI；DOCX 写出支持嵌入 data URI/本地图片。
+   仍缺：DOCX 解析时不提取内嵌图；EPUB 写出仍是占位/外链。排版侧（DocTree→PDF）
+   已支持嵌入，见 `tests/test_document_fidelity.py`。
 
 ## 三、可选依赖/引擎未装（装了即恢复）
 
@@ -75,8 +75,9 @@
 | psd-tools | PSD 读取不可用 |
 | rawpy | 相机 RAW 读取不可用 |
 | vtracer | 位图 → SVG 描摹不可用（PNG/JPG→SVG 不再出现在目标列表） |
+| Tesseract | 扫描 PDF / 图片 OCR 不可用（扫描件不列 Word/Markdown） |
 
-外部引擎状态（本机实测）：**FFmpeg 8.1.2 ✓、UnRAR ✓、soffice ✗**；以 `convcore doctor`
+外部引擎状态（本机实测）：**FFmpeg 8.1.2 ✓、UnRAR ✓、Tesseract ✓、soffice ✗**；以 `convcore doctor`
 的输出为准，版本号钉在 `convcore/engines/manifest.py`。
 未装依赖的插件不会破坏引擎启动——`available()` 返回原因并跳过，`doctor` 会列出。
 

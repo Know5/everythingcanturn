@@ -59,8 +59,8 @@ pip install -e ".[all]"
 ```
 
 可用 extras：`image`、`raw`、`vector`、`document`、`pdf2docx`、`data`、
-`archive`、`font`、`desktop`。这些 extras 只安装 Python 包；FFmpeg、LibreOffice、
-resvg 可执行文件和 RAR 的 UnRAR 后端仍需按下方说明单独安装。
+`archive`、`font`、`ocr`、`desktop`。这些 extras 只安装 Python 包；FFmpeg、LibreOffice、
+Tesseract、resvg 可执行文件和 RAR 的 UnRAR 后端仍需按下方说明单独安装。
 
 也可以用 PyInstaller 打成 Windows 可执行包（onedir，约 254MB，含所有 Python 依赖），见下文「打包」：
 
@@ -79,6 +79,9 @@ dist/convcore/
 - **vtracer**：位图描摹成 SVG（PNG/JPG → SVG）。`pip install -e ".[vector]"`，
   未装时描摹桥整体从目标列表消失（图搜索按依赖门控）。
 - **rawpy**：相机 RAW 格式（CR2/NEF/ARW）。`pip install -e ".[raw]"`。
+- **Tesseract**：扫描 PDF / 图片 OCR。先 `pip install -e ".[ocr]"`，再装
+  [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki)（约 50MB）。中文需要额外
+  `chi_sim` 语言包；未装时扫描件不会列出 Word/Markdown 目标。
 
 ## 使用
 
@@ -106,6 +109,9 @@ convcore path photo.heic pdf
 # PDF → Word：默认自动选择表格识别策略，并把推断出的标题映射为 Word Heading 样式
 convcore convert report.pdf -t docx
 convcore convert report.pdf -t docx --pdf-table-mode lattice --no-pdf-heading-styles
+
+# 扫描 PDF / 图片 OCR（需要 Tesseract 与 [ocr] extra）
+convcore convert scan.pdf -t md --ocr-lang chi_sim+eng --ocr-dpi 300
 
 # 环境诊断：缺哪些依赖、哪些引擎没装
 convcore doctor
@@ -174,7 +180,8 @@ convcore/
 │   ├── data_tree.py      # JSON/YAML/TOML/XML
 │   ├── data_table.py     # CSV/TSV/NDJSON/XLSX/Parquet
 │   ├── archive.py        # ZIP/7z/TAR/GZ/BZ2/XZ，RAR 只读
-│   └── font.py           # TTF/OTF/WOFF/WOFF2
+│   ├── font.py           # TTF/OTF/WOFF/WOFF2
+│   └── ocr.py            # 扫描 PDF / 图片 OCR（Tesseract）
 ├── cli.py            # 命令行入口
 ├── webui/            # 标准库 http.server 本地服务（convcore ui）+ 前端静态资源
 └── desktop/          # pywebview 原生窗口（convcore gui），经 js_api 调 Python
@@ -337,7 +344,8 @@ dist/convcore/convcore.exe  # 启动 GUI
 - SVG 嵌进文档树只是一段原始 SVG：能转 HTML、Markdown、EPUB，但不列纯文本、Word、表格
 
 具体文件缺什么，要在转换前打开文件才知道：纯音频（没有封面图）不列图片和 PDF，
-无声视频不列音频格式，扫描件 PDF 不列要抽文字的目标。这一步由 `Converter.refine_targets`
+无声视频不列音频格式，扫描件 PDF 在没装 Tesseract 时不列要抽文字的目标（装了 OCR 后
+重新列出 Word/Markdown）。这一步由 `Converter.refine_targets`
 完成，GUI、Web UI 和 `convcore targets` 用的都是它。约束声明在 `convcore/graph.py` 的
 `BRIDGE_LACKS` / `BRIDGE_REQUIRES`，插件写出能力用 `Capability.requires` 声明（如 MP3 要求 `audio`）。
 
@@ -356,7 +364,8 @@ dist/convcore/convcore.exe  # 启动 GUI
    整棵文档树读进内存，大文件的内存占用可能是文件大小的数倍。音视频交给 ffmpeg 流式处理，不受此限。
 4. **并发**：`Converter` 内部没有加锁，没有验证过多线程共享一个实例。`JobQueue`、GUI、
    Web UI 都是每个任务新建一个 `Converter()`（约 0.1ms），自己写并发代码时照这个做。
-5. **扫描件没有 OCR**：没有文本层的 PDF 转 Word / Markdown 会被拒绝，并提示先做 OCR 或转成图片。
+5. **OCR 是可选引擎**：未装 Tesseract 时，没有文本层的 PDF 转 Word / Markdown 会被拒绝并提示安装；
+   装了之后可以 OCR，但输出是纯文本推断，段落/表格/错字都需要复核，中文需 `chi_sim` 语言包。
 
 ## 扩展
 

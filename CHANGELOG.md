@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 新增 `benchmarks/` 能力基准：公开 arXiv 论文、IRS W-9、CC0 扫描件样本，下载脚本与
   `pdf_word_bench.py` 记录文本召回、标题/表格/图片/文本框数量与耗时；
   样本和产物只写入项目目录（`benchmarks/samples`、`benchmarks/work`，均不入库）
+- **扫描件 OCR**：可选 Tesseract（`[ocr]` extra + 本机引擎），扫描 PDF/图片可转
+  Markdown / Word / 纯文本；图搜索在内容约束下会重搜 OCR 路径，而不是只删掉
+  `requires text` 的 pdf2docx 路径。CLI 支持 `--ocr-lang` / `--ocr-dpi`，
+  `doctor` 会报告 Tesseract 状态
+- **文档图片链路**：PDF→Markdown 保留内嵌图（data URI）；Markdown/HTML→DOCX 的
+  data URI/本地图片真正嵌入 `word/media`，不再只留占位符
 
 ### Fixed
 - CI 一直红：`pip install .[all,dev]` 会拉到 PyMuPDF 2.0 / Pillow 13 / ReportLab 5.1，

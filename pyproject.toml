@@ -54,6 +54,10 @@ archive = [
 font = [
     "fonttools>=4.50",
     "brotli>=1.1",
+    "pytesseract>=0.3",
+]
+ocr = [
+    "pytesseract>=0.3",
 ]
 desktop = [
     "pywebview>=6.0",

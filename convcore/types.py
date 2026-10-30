@@ -165,6 +165,8 @@ class Capability:
     往往是最糙的。PDF→Word 就踩过这个坑：抽文本的桥接路径比 pdf2docx 快 3 倍，
     但丢掉全部表格。
     """
+    opaque: bool = False
+    """产物不能作为下一跳的输入。OCR 文本、截图这类「终点格式」用。"""
     requires: frozenset[str] = frozenset()
     """这条能力要求内容里有什么："text"（文字）、"audio"（音轨）、"picture"（画面）。
 

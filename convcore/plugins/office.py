@@ -247,14 +247,16 @@ class DocxCodec:
         if ir.author:
             d.core_properties.author = ir.author
 
+        self._image_embedded = 0
         for b in ir.blocks:
             self._emit(d, b, pol)
 
-        if ir.image_count:
+        remaining = ir.image_count - self._image_embedded
+        if remaining:
             pol.note(
                 "图片",
                 Strategy.DROP,
-                f"{ir.image_count} 张图片仅保留占位说明（外链图片未下载）",
+                f"{remaining} 张图片未嵌入（外链、SVG 或 DOCX 不支持的格式）",
             )
 
         buf = io.BytesIO()
@@ -302,7 +304,10 @@ class DocxCodec:
             self._write_table(d, b)
 
         elif b.kind == IMAGE:
-            # 路径也写进占位符：DOCX 存不了外链图片，但丢掉路径就彻底找不回来了
+            if b.src and self._add_image(d, b.src):
+                self._image_embedded += 1
+                return
+            # 外链/不支持格式：路径写进占位符，丢掉就彻底找不回来了
             label = b.alt or "图片"
             if b.src:
                 label = f"{label}：{b.src}"
@@ -321,6 +326,45 @@ class DocxCodec:
             if b.text:
                 p = d.add_paragraph()
                 self._runs(p, b.spans or [Span(b.text)])
+
+    def _add_image(self, document, src: str) -> bool:
+        """把 data URI / 本地图片嵌进 DOCX；外链与不支持的格式返回 False。"""
+        import base64
+        import io
+        from pathlib import Path
+
+        from docx.shared import Inches
+
+        stream = None
+        try:
+            if src.startswith("data:"):
+                header, _, payload = src.partition(",")
+                if "svg" in header.lower():
+                    return False
+                stream = io.BytesIO(base64.b64decode(payload))
+            else:
+                path = Path(src)
+                if not path.is_file():
+                    return False
+                stream = io.BytesIO(path.read_bytes())
+        except Exception:
+            return False
+
+        try:
+            from PIL import Image
+
+            with Image.open(stream) as image:
+                width, height = image.size
+                dpi = float(image.info.get("dpi", (96, 96))[0] or 96)
+            stream.seek(0)
+            # 按页面可用宽度（约 6 英寸）等比缩放，避免原图 DPI 让 Word 撑爆版面
+            width_in = min(6.0, max(1.0, width / dpi))
+            if height / dpi > 8.0:
+                width_in = min(width_in, 8.0 * width / height)
+            document.add_picture(stream, width=Inches(width_in))
+            return True
+        except Exception:
+            return False
 
     def _runs(self, para, spans: list[Span]) -> None:
         from docx.shared import Pt

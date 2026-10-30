@@ -147,13 +147,12 @@ def test_every_listed_target_converts(key, sources, conv, tmp_path):
     ("key", "absent"),
     [
         # 贴图标类 PNG 现在可经描摹产出 Markdown（内嵌 SVG），不再是「不可能目标」；
-        # 照片 PNG 会被 refine 的描摹预检剔除（见 test_raster_to_vector.py）
-        ("png", {"text/plain", "text/csv", "application/json",
-                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
+        # 照片 PNG 会被 refine 的描摹预检剔除（见 test_raster_to_vector.py）。
+        # 装了 OCR 后 PNG/扫描 PDF 又能直接产出 Word/Markdown/纯文本，这里不再钉死。
+        ("png", {"text/csv", "application/json"}),
         ("svg", {"text/plain", "text/csv",
                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
-        ("pdf_scan", {"text/markdown", "text/csv",
-                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
+        ("pdf_scan", {"text/csv"}),
         ("wav", {"image/png", "application/pdf"}),
         ("mp4_silent", {"audio/mpeg", "audio/wav"}),
     ],

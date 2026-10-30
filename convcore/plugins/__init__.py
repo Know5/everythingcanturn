@@ -22,6 +22,7 @@ _MODULES = (
     "data_table",
     "archive",
     "font",
+    "ocr",
 )
 
 

@@ -163,7 +163,11 @@ def test_review_marks_can_be_disabled(pdfs, tmp_path):
 
 
 def test_scanned_pdf_rejected_with_actionable_message(pdfs, tmp_path):
-    """扫描件转 Word 只会得到一堆图片。提前拦住并给出替代方案。"""
+    """没装 OCR 时，扫描件转 Word 只会得到一堆图片，必须提前拦住。"""
+    from convcore.plugins.ocr import OcrCodec
+
+    if OcrCodec().available()[0]:
+        pytest.skip("本机已装 Tesseract，扫描件会走 OCR 路径")
     with pytest.raises(ConversionError) as ei:
         convert_file(pdfs["scanned"], "docx", out_dir=tmp_path, overwrite=True)
 

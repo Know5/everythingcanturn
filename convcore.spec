@@ -26,7 +26,7 @@ PLUGINS = [
         "image", "image_extra", "vector", "media",
         "document", "document_pdf", "document_word", "document_build",
         "markup", "markup_read", "markup_write", "office", "office_soffice",
-        "data_tree", "data_table", "archive", "font",
+        "data_tree", "data_table", "archive", "font", "ocr",
     )
 ]
 
@@ -78,6 +78,7 @@ a = Analysis(
         "yaml",
         "tomli_w",
         "puremagic",
+        "pytesseract",
         # tkinter 供 Web UI 的文件对话框子进程用（见 _paths.python_cmd）
         "tkinter",
         "tkinter.filedialog",

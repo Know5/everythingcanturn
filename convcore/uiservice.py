@@ -41,6 +41,7 @@ DOMAIN_LABEL = {
     "archive": "压缩包",
     "font": "字体",
     "mesh": "3D 模型",
+    "ocr": "OCR 文字识别",
 }
 
 # 各源格式最常用的目标。用于选默认值——按“最保真”排会给 PNG 默认选 BMP，

@@ -165,3 +165,48 @@ def test_prose_pdf_is_not_mistaken_for_a_table(tmp_path):
     res = convert_file(pdf, "md", out_dir=tmp_path, overwrite=True)
     text = res.outputs[0].path.read_text(encoding="utf-8")
     assert "|" not in text, f"散文被误判成表格：{text[:200]}"
+
+
+def test_pdf_to_markdown_keeps_images(tmp_path):
+    """PDF 内嵌图应进入 Markdown，而不是只留一句「图片未保留」。"""
+    import pymupdf
+    from PIL import Image
+    from convcore import convert_file
+
+    image = tmp_path / "red.png"
+    Image.new("RGB", (32, 24), "red").save(image)
+    pdf = tmp_path / "with-image.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "image page")
+    page.insert_image(pymupdf.Rect(72, 100, 180, 180), filename=str(image))
+    doc.save(pdf)
+    doc.close()
+
+    res = convert_file(pdf, "md", out_dir=tmp_path, overwrite=True)
+    text = res.outputs[0].path.read_text(encoding="utf-8")
+    assert "![PDF image](data:image/" in text
+
+
+def test_docx_writer_embeds_data_uri_images(tmp_path):
+    """Markdown/HTML 里的 data URI 图片写进 DOCX 时应真正嵌入，而不是占位符。"""
+    import base64
+    import io
+    import zipfile
+
+    from PIL import Image
+
+    from convcore.ir.markup import IMAGE, Block, DocTree
+    from convcore.plugins.office import DocxCodec
+
+    buf = io.BytesIO()
+    Image.new("RGB", (80, 60), "red").save(buf, "PNG")
+    src = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    resource = DocxCodec().write(
+        DocTree(blocks=[Block(IMAGE, src=src, alt="red")]), docx, {}
+    )[0]
+    path = tmp_path / "image.docx"
+    path.write_bytes(resource.data or b"")
+    with zipfile.ZipFile(path) as archive:
+        assert any(n.startswith("word/media/") for n in archive.namelist())

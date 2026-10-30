@@ -73,6 +73,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
             ("review_marks", False if args.no_review_marks else None),
             ("pdf_table_mode", args.pdf_table_mode),
             ("pdf_heading_styles", False if args.no_pdf_heading_styles else None),
+            ("ocr_lang", args.ocr_lang),
+            ("ocr_dpi", args.ocr_dpi),
             ("force", args.force or None),
         )
         if v is not None
@@ -691,6 +693,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-pdf-heading-styles",
         action="store_true",
         help="PDF 转 Word 时不把推断出的标题映射为 Word Heading 样式",
+    )
+    c.add_argument(
+        "--ocr-lang",
+        help="OCR 语言，默认 chi_sim+eng（需装对应 Tesseract 语言包）",
+    )
+    c.add_argument(
+        "--ocr-dpi",
+        type=int,
+        help="扫描件 OCR 的渲染分辨率，默认 300",
     )
     c.add_argument("--overwrite", action="store_true", help="允许覆盖已存在的文件")
     c.add_argument("--quiet", action="store_true", help="只输出产物路径")

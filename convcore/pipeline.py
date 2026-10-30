@@ -33,6 +33,7 @@ from .types import (
     ConvertResult,
     LossTier,
     MediaType,
+    NoPathError,
     Resource,
 )
 
@@ -132,11 +133,34 @@ class Converter:
             except Exception:
                 pass  # 探测失败就按静态声明列
 
+        if domain in ("vector", "media"):
+            # OCR 只对原始文档/图片开放；不要把 SVG 渲染出的 PNG、
+            # 视频封面帧这类派生图自动送进 OCR。
+            for mt, cpath in targets.items():
+                if any(
+                    getattr(e.plugin, "name", "") == "tesseract"
+                    for e in cpath.edges
+                ):
+                    out.pop(mt, None)
+
         if lacks:
             frozen = frozenset(lacks)
-            for mt, cpath in targets.items():
-                if cpath.blocked_under(frozen):
+            for mt in list(out):
+                cpath = targets[mt]
+                if not cpath.blocked_under(frozen):
+                    continue
+                # 静态最优路径被内容约束挡住时，重新搜一条能走的路。
+                # 例：扫描 PDF 的静态最优是 pdf2docx，但它要求 text；
+                # OCR 写 Word 的边不要求 text，重搜后才能出现在目标里。
+                if domain != "document":
                     del out[mt]
+                    continue
+                try:
+                    alt = self.graph.find_path(src_mt, mt, lacks=frozen)
+                except NoPathError:
+                    del out[mt]
+                else:
+                    out[mt] = alt.loss
 
         if plan is None:
             return out
@@ -170,9 +194,14 @@ class Converter:
         *,
         max_mats: int = 2,
         allow_identity: bool = True,
+        lacks: frozenset[str] = frozenset(),
     ) -> ConvPath:
         return self.graph.find_path(
-            src, dst, max_materializations=max_mats, allow_identity=allow_identity
+            src,
+            dst,
+            max_materializations=max_mats,
+            allow_identity=allow_identity,
+            lacks=lacks,
         )
 
     # ── 执行 ──
@@ -202,11 +231,25 @@ class Converter:
         # 直接返回空路径会让选项被静默忽略——这是最难排查的一类 bug。
         identity_ok = not (src == target and self._has_transform(opts))
 
+        lacks: frozenset[str] = frozenset()
+        try:
+            from .formats import domain_of
+
+            source_path = req.inputs[0].path
+            if domain_of(src) == "document" and source_path and source_path.is_file():
+                from .plugins.document import has_text_layer
+
+                if has_text_layer(source_path) is False:
+                    lacks = frozenset({"text"})
+        except Exception:
+            pass  # 探测失败按静态路径走，不要把转换整体拦掉
+
         path = self.plan(
             src,
             target,
             max_mats=req.max_materializations,
             allow_identity=identity_ok,
+            lacks=lacks,
         )
         pol = policy_mod.policy_from_options(opts)
 
