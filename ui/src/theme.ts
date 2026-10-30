@@ -1,36 +1,40 @@
-/* 设计基线：取自 Radix Colors 的暗色阶梯（slate / blue / green / amber / orange / red）。
+/* 设计 token：深色桌面工具。层级靠“近黑背景 → 抬升面板 → 卡片”三档明度，
+ * 强调色只用于主操作和选中态，避免整屏彩色噪点。
  *
- * 为什么用 Radix 而不是自己调：它的暗色阶是按"同一感知亮度、不同色相"构造的，
- * 1–2 是背景层、3–5 是组件面、6–8 是描边、9–10 是实心色、11–12 是文字。
- * 直接引用这套数值，能保证任意两个面之间都有可读的对比度，也避免"手调出一堆灰"。
+ * 字体统一走系统 UI：Windows 上 Segoe UI Variable，中文回退微软雅黑；
+ * 不引外部字体，保证离线与启动速度。
  */
 
 export const radix = {
-  bg0: "#0b0c0e", // 窗口底，比 slate-1 再暗半档
-  bg1: "#111113", // slate-1  应用背景
-  surface: "#18191b", // slate-2 卡片/列表底
-  surfaceHi: "#212225", // slate-3 悬停/次级面
-  surfaceActive: "#272a2d", // slate-4 选中
-  border: "#2e3135", // slate-5 分隔线
-  borderStrong: "#43484e", // slate-7 强调描边
-  textFaint: "#696e77", // slate-9
-  textDim: "#b0b4ba", // slate-11
-  text: "#edeef0", // slate-12
-  accent: "#0090ff", // blue-9
-  accentHover: "#3b9eff", // blue-10
-  accentText: "#70b8ff", // blue-11
-  success: "#30a46c", // green-9
-  successText: "#3dd68c",
-  warn: "#ffc53d", // amber-9
-  warnText: "#ffd60a",
-  danger: "#e5484d", // red-9
-  dangerText: "#ec5d5e",
-  orange: "#f76b15", // orange-9
-  violet: "#6e56cf",
-  cyan: "#00a2c7",
+  bg0: "#08090b",
+  bg1: "#0b0d10",
+  surface: "#111419",
+  surfaceHi: "#161a20",
+  surfaceActive: "#1c222b",
+  border: "#222833",
+  borderStrong: "#333c4a",
+  textFaint: "#6c7686",
+  textDim: "#9ba4b2",
+  text: "#eef1f5",
+  accent: "#4c8dff",
+  accentHover: "#6aa1ff",
+  accentText: "#8ab6ff",
+  accentSoft: "rgba(76, 141, 255, 0.12)",
+  success: "#35d399",
+  successText: "#6ee7b7",
+  warn: "#f2c14e",
+  warnText: "#f7d070",
+  danger: "#ff6b6b",
+  dangerText: "#ff8d8d",
+  orange: "#f08a4b",
+  violet: "#8b7bff",
+  cyan: "#38c7d6",
+  shadow: "0 18px 48px rgba(0, 0, 0, 0.42)",
+  shadowSoft: "0 8px 24px rgba(0, 0, 0, 0.28)",
+  glass: "rgba(17, 20, 25, 0.78)",
 } as const;
 
-/** 领域色（用于扩展名徽标，取各色相的 9 号实心色） */
+/** 领域色（扩展名徽标与格式分组） */
 export const domainColor: Record<string, string> = {
   raster: radix.accent,
   media: radix.violet,
@@ -38,9 +42,9 @@ export const domainColor: Record<string, string> = {
   markup: radix.success,
   table: radix.cyan,
   archive: radix.textDim,
-  font: "#e93d82",
+  font: "#e879b9",
   vector: radix.orange,
-  tree: "#30a46c",
+  tree: "#4ade80",
 };
 
 /** 损失档位色：绿→黄→橙→红，语义与 README 的档位一致 */
@@ -61,7 +65,7 @@ export const tierIcon: Record<string, string> = {
 };
 
 const fontFamily =
-  '-apple-system, "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", Roboto, sans-serif';
+  '"Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif';
 const monoFamily = '"Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", monospace';
 
 import { theme, type ThemeConfig } from "antd";
@@ -75,34 +79,54 @@ export const appTheme: ThemeConfig = {
     colorBgElevated: radix.surfaceHi,
     colorBgSpotlight: radix.surfaceHi,
     colorBorder: radix.border,
-    colorBorderSecondary: "#24272a",
+    colorBorderSecondary: "#1b212a",
     colorText: radix.text,
     colorTextSecondary: radix.textDim,
     colorTextTertiary: radix.textFaint,
+    colorTextQuaternary: "#5b6472",
     colorSuccess: radix.success,
     colorWarning: radix.warn,
     colorError: radix.danger,
     colorLink: radix.accentText,
-    colorFillSecondary: "rgba(255,255,255,0.06)",
-    borderRadius: 7,
-    borderRadiusLG: 10,
-    controlHeight: 32,
+    colorFillSecondary: "rgba(255,255,255,0.055)",
+    colorFillTertiary: "rgba(255,255,255,0.035)",
+    borderRadius: 9,
+    borderRadiusLG: 14,
+    borderRadiusSM: 7,
+    controlHeight: 34,
     fontSize: 13,
     fontFamily,
     fontFamilyCode: monoFamily,
-    motionDurationMid: "0.14s",
+    motionDurationMid: "0.16s",
     wireframe: false,
   },
   components: {
-    Button: { primaryShadow: "none", defaultShadow: "none", fontWeight: 500 },
+    Button: {
+      primaryShadow: "none",
+      defaultShadow: "none",
+      fontWeight: 500,
+      paddingInline: 14,
+    },
     Card: { colorBgContainer: radix.surface },
-    Modal: { contentBg: radix.surface, headerBg: "transparent", titleFontSize: 14 },
-    Input: { colorBgContainer: radix.bg1 },
-    Select: { optionSelectedBg: "rgba(0,144,255,0.16)" },
-    Progress: { defaultColor: radix.accent, remainingColor: "rgba(255,255,255,0.07)" },
-    Tooltip: { colorBgSpotlight: "#2b2f33" },
+    Modal: {
+      contentBg: radix.surface,
+      headerBg: "transparent",
+      titleFontSize: 16,
+      titleColor: radix.text,
+    },
+    Input: { colorBgContainer: radix.bg1, activeBorderColor: radix.accent },
+    Select: {
+      optionSelectedBg: radix.accentSoft,
+      optionActiveBg: "rgba(255,255,255,0.05)",
+    },
+    Progress: {
+      defaultColor: radix.accent,
+      remainingColor: "rgba(255,255,255,0.06)",
+    },
+    Tooltip: { colorBgSpotlight: "#252b35" },
     Tag: { defaultBg: radix.surfaceHi, defaultColor: radix.textDim },
     Divider: { colorSplit: radix.border },
     Segmented: { itemSelectedBg: radix.surfaceActive },
+    Empty: { colorTextDescription: radix.textFaint },
   },
 };

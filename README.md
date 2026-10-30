@@ -247,6 +247,8 @@ pytest --cov=convcore --cov-report=html
 
 桌面窗口（`convcore gui`）是 React + TypeScript + Ant Design 的单页应用，源码在 `ui/`，
 构建产物落到 `convcore/webui/static/gui/`（不入库，打包时由 `convcore.spec` 的 `datas` 收集）。
+界面是左侧队列 + 右侧任务面板：空态为居中拖放区，文件以卡片展示，目标选择器可按域
+搜索；统计、输出目录、质量预设和主操作都收在右侧，窄窗口会自动压缩侧栏。
 
 ```bash
 cd ui

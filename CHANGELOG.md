@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   列表行自绘而非直接拼 AntD 默认组件；行为对齐旧版（拖放、按域分组的目标选择、
   损失档位、逐文件进度、批量统一目标、预设、输出目录、引擎安装、格式矩阵）。
   详见 `docs/superpowers/specs/2026-10-29-desktop-ui-react-antd.md`
+- **桌面 UI 产品化重构**：平铺列表 + 底栏改为“队列卡片 + 右侧任务面板”。
+  空状态重做为居中拖放区；目标选择器改成可搜索的双列格式列表；任务面板集中
+  统计、输出目录、质量预设与主操作；引擎/帮助弹层统一为同一套信息层级。
+  同时补充窄窗口适配与暗色分层 token
 - `convcore gui` 新增 `--ui-dev URL`，可指向 Vite 开发服务器做前端热更新
 - Windows 标题栏改为跟随暗色（`DwmSetWindowAttribute`），失败时静默退化为系统默认
 - 桌面端与浏览器端的状态机合并到 `convcore/uiservice.py`：`inspect`、逐文件任务、

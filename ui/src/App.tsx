@@ -1,21 +1,26 @@
-/* 真实界面：顶栏 / 文件列表 / 底栏 + 三个弹层。
+/* 应用骨架：顶栏 / 队列工作区 / 右侧任务面板 / 三个弹层。
  *
- * 与 P0 spike 的区别：数据全部来自 Python 侧（inspect / convert / onJob 事件）。
- * 拖放依赖 bridge.ts 的全局保护与应用级事件注册，见该文件头注释。
+ * 布局只在“有文件”时出现右侧面板；空状态占满整行，避免首屏出现一块
+ * 全是 0 的统计面板。拖放事件由 bridge.ts 提供真实路径，这里只处理状态。
  */
 
 import { useEffect } from "react";
-import { App as AntApp, Alert, Button, Flex, Spin, Typography } from "antd";
+import { App as AntApp, Alert, Popconfirm, Spin, Typography } from "antd";
+import {
+  ClearOutlined,
+  PlusOutlined,
+  SwapOutlined,
+  InboxOutlined,
+} from "@ant-design/icons";
 import { bindDrop, bindJob, api } from "./bridge";
 import { useStore } from "./store";
 import { TopBar } from "./components/TopBar";
 import { FileRow } from "./components/FileRow";
-import { RunBar } from "./components/RunBar";
+import { SidePanel } from "./components/SidePanel";
 import { TargetPicker } from "./components/TargetPicker";
 import { EnginePanel } from "./components/EnginePanel";
 import { HelpPanel } from "./components/HelpPanel";
 import { EmptyDrop } from "./components/bits";
-import { radix } from "./theme";
 
 const { Text } = Typography;
 
@@ -32,12 +37,17 @@ export default function App() {
   const openPicker = useStore((s) => s.openPicker);
   const setEngineProgress = useStore((s) => s.setEngineProgress);
   const applyJob = useStore((s) => s.applyJob);
+  const clearAll = useStore((s) => s.clearAll);
 
   useEffect(() => {
     void boot();
 
     bindDrop(async (paths) => {
-      await addPaths(paths);
+      const problems = await addPaths(paths);
+      if (problems.length === 1) message.error(problems[0]);
+      else if (problems.length > 1) {
+        message.error(`${problems[0]}（另有 ${problems.length - 1} 个文件未添加）`);
+      }
     });
     bindJob((job) => applyJob(job));
     window.onEngineProgress = (key, pct) => setEngineProgress(key, pct);
@@ -61,92 +71,112 @@ export default function App() {
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
     };
-  }, [boot, addPaths, applyJob, setDragOver, setEngineProgress]);
+  }, [boot, addPaths, applyJob, setDragOver, setEngineProgress, message]);
 
   const pick = async () => {
     try {
       const paths = await api().pick_files();
-      if (paths?.length) await addPaths(paths);
+      if (!paths?.length) return;
+      const problems = await addPaths(paths);
+      if (problems.length === 1) message.error(problems[0]);
+      else if (problems.length > 1) {
+        message.error(`${problems[0]}（另有 ${problems.length - 1} 个文件未添加）`);
+      }
     } catch (e) {
       message.error(`打开对话框失败：${e}`);
     }
   };
 
-  return (
-    <Flex vertical style={{ height: "100%", position: "relative", overflow: "hidden" }}>
-      {/* 顶部一层很淡的光晕，避免大面积纯黑发闷 */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          pointerEvents: "none",
-          background:
-            "radial-gradient(700px 240px at 50% -90px, rgba(0,144,255,0.10), transparent 72%)",
-        }}
-      />
+  const hasFiles = files.length > 0;
 
+  return (
+    <div className="app-shell">
       <TopBar />
 
-      {files.length > 0 && (
-        <Flex
-          align="center"
-          gap={8}
-          style={{
-            padding: "6px 14px",
-            borderBottom: `1px solid ${radix.border}`,
-            flex: "0 0 auto",
-          }}
-        >
+      {!ready && !bootError && (
+        <div className="boot-screen">
+          <Spin />
           <Text type="secondary" style={{ fontSize: 11.5 }}>
-            {files.length} 个文件
+            正在加载转换引擎…
           </Text>
-          <div style={{ flex: 1 }} />
-          {adding && <Spin size="small" />}
-          <Button type="text" size="small" onClick={() => openPicker("*")}>
-            统一目标…
-          </Button>
-        </Flex>
+        </div>
       )}
 
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflow: "auto",
-          display: "flex",
-          flexDirection: "column",
-          position: "relative",
-          zIndex: 1,
-          outline: dragOver ? `1px dashed ${radix.accent}` : "1px dashed transparent",
-          outlineOffset: -6,
-          transition: "outline-color .12s",
-          background: dragOver ? "rgba(0,144,255,0.045)" : "transparent",
-        }}
-      >
-        {!ready && !bootError && (
-          <Flex align="center" justify="center" style={{ flex: 1 }}>
-            <Spin />
-          </Flex>
-        )}
-        {bootError && (
-          <div style={{ padding: 16 }}>
-            <Alert type="error" showIcon message="初始化失败" description={bootError} />
-          </div>
-        )}
-        {ready && files.length === 0 && (
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <EmptyDrop onClick={() => void pick()} />
-          </div>
-        )}
-        {files.map((f) => (
-          <FileRow key={f.path} file={f} />
-        ))}
-      </div>
+      {bootError && (
+        <div style={{ padding: "22px 24px 0" }}>
+          <Alert type="error" showIcon message="初始化失败" description={bootError} />
+        </div>
+      )}
 
-      <RunBar />
+      {ready && !hasFiles && (
+        <div className="workspace empty">
+          <EmptyDrop onClick={() => void pick()} hot={dragOver} />
+        </div>
+      )}
+
+      {ready && hasFiles && (
+        <div className="workspace">
+          <main className="queue-pane">
+            <div className="queue-head">
+              <div>
+                <div className="eyebrow">转换工作区</div>
+                <h1 className="queue-title">
+                  转换队列 <span className="count">{files.length}</span>
+                </h1>
+                <p className="queue-sub">
+                  选择目标格式后开始转换；所有文件只在本机处理。
+                </p>
+              </div>
+              <div className="queue-actions">
+                {adding && <Spin size="small" />}
+                <button className="head-action primary" onClick={() => void pick()}>
+                  <PlusOutlined /> 添加文件
+                </button>
+                <button className="head-action" onClick={() => openPicker("*")}>
+                  <SwapOutlined /> 统一目标
+                </button>
+                <Popconfirm
+                  title="清空列表？"
+                  description="进行中的任务会先被取消"
+                  okText="清空"
+                  cancelText="取消"
+                  onConfirm={() => void clearAll()}
+                >
+                  <button className="head-action">
+                    <ClearOutlined /> 清空
+                  </button>
+                </Popconfirm>
+              </div>
+            </div>
+
+            <div className="file-list">
+              {files.map((f) => (
+                <FileRow key={f.path} file={f} />
+              ))}
+            </div>
+
+            <button className="queue-more" onClick={() => void pick()}>
+              <PlusOutlined />
+              继续添加文件，或把文件拖进窗口
+            </button>
+          </main>
+
+          <SidePanel />
+        </div>
+      )}
+
+      {dragOver && (
+        <div className="drop-overlay">
+          <div className="drop-overlay-inner">
+            <InboxOutlined style={{ fontSize: 24 }} />
+            松开即可添加文件
+          </div>
+        </div>
+      )}
+
       <TargetPicker />
       <EnginePanel />
       <HelpPanel />
-    </Flex>
+    </div>
   );
 }

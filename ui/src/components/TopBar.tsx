@@ -1,126 +1,66 @@
-import { Button, Flex, Select, Tag, Tooltip, Typography } from "antd";
+import { Tooltip } from "antd";
 import {
-  FolderOpenOutlined,
   QuestionCircleOutlined,
-  ToolOutlined,
+  SafetyCertificateOutlined,
+  ToolFilled,
   ThunderboltFilled,
 } from "@ant-design/icons";
 import { useStore } from "../store";
 import { radix } from "../theme";
 
-const { Text } = Typography;
-
 export function TopBar() {
   const env = useStore((s) => s.env);
-  const preset = useStore((s) => s.preset);
-  const setPreset = useStore((s) => s.setPreset);
   const openEngines = useStore((s) => s.openEngines);
   const openHelp = useStore((s) => s.openHelp);
-  const pickOutDir = useStore((s) => s.pickOutDir);
 
-  const missing = env?.engines.filter((e) => !e.ok && e.tier === "needed") ?? [];
+  const engines = env?.engines ?? [];
+  const missing = engines.filter((e) => !e.ok && e.tier === "needed");
+  const ready = engines.filter((e) => e.ok).length;
 
   return (
-    <Flex
-      align="center"
-      gap={8}
-      style={{
-        height: 50,
-        padding: "0 14px",
-        borderBottom: `1px solid ${radix.border}`,
-        flex: "0 0 auto",
-        WebkitAppRegion: "drag",
-      } as React.CSSProperties}
-    >
-      <div
-        style={{
-          width: 24,
-          height: 24,
-          borderRadius: 7,
-          background: `linear-gradient(135deg, ${radix.accent}, ${radix.violet})`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flex: "0 0 auto",
-        }}
-      >
-        <ThunderboltFilled style={{ color: "#fff", fontSize: 12 }} />
+    <header className="topbar">
+      <div className="brand">
+        <div className="brand-mark">
+          <ThunderboltFilled />
+        </div>
+        <div className="brand-copy">
+          <span className="brand-name">convcore</span>
+          <span className="brand-sub">本地文件转换</span>
+        </div>
       </div>
-      <Text strong style={{ fontSize: 13.5, letterSpacing: 0.2 }}>
-        convcore
-      </Text>
-      {env && (
-        <Text type="secondary" style={{ fontSize: 11.5 }}>
-          可读 {env.readable} · 可写 {env.writable}
-        </Text>
-      )}
 
-      <div style={{ flex: 1 }} />
+      <div className="topbar-spacer" />
 
-      <Select
-        size="small"
-        variant="borderless"
-        value={preset}
-        onChange={setPreset}
-        placeholder="默认"
-        style={{ width: 104 }}
-        options={[
-          { value: "", label: "默认" },
-          ...(env?.presets ?? []).map((p) => ({ value: p.name, label: p.label })),
-        ]}
-      />
-      <Tooltip title={env?.outDir ? `输出到 ${env.outDir}` : "输出到源文件所在目录"}>
-        <Button
-          type="text"
-          size="small"
-          icon={<FolderOpenOutlined />}
-          onClick={() => void pickOutDir()}
-          style={{ color: env?.outDir ? radix.accentText : undefined }}
+      <div className="topbar-actions">
+        <span
+          className="status-pill"
+          style={{ color: radix.textFaint, cursor: "default" }}
+          title={`可读 ${env?.readable ?? 0} 种格式 · 可写 ${env?.writable ?? 0} 种`}
         >
-          输出目录
-        </Button>
-      </Tooltip>
-      <Tooltip
-        title={
-          missing.length
-            ? `缺 ${missing.length} 个引擎：${missing.map((m) => m.key).join("、")}`
-            : "所有已装引擎就绪"
-        }
-      >
-        <Button
-          type="text"
-          size="small"
-          icon={<ToolOutlined />}
-          onClick={() => openEngines(true)}
+          <SafetyCertificateOutlined style={{ fontSize: 12 }} />
+          本地处理
+        </span>
+
+        <Tooltip
+          title={
+            missing.length
+              ? `缺 ${missing.length} 个引擎：${missing.map((m) => m.key).join("、")}`
+              : "所有已装引擎就绪"
+          }
         >
-          引擎
-          <span
-            style={{
-              display: "inline-block",
-              width: 6,
-              height: 6,
-              borderRadius: 999,
-              marginLeft: 4,
-              background: missing.length ? radix.warn : radix.success,
-            }}
-          />
-        </Button>
-      </Tooltip>
-      <Button
-        type="text"
-        size="small"
-        icon={<QuestionCircleOutlined />}
-        onClick={() => openHelp(true)}
-      />
-      {env?.outDir && (
-        <Tag
-          style={{ margin: 0, fontSize: 10.5, maxWidth: 160 }}
-          color="processing"
-          bordered={false}
-        >
-          自定义目录
-        </Tag>
-      )}
-    </Flex>
+          <button className="status-pill" onClick={() => openEngines(true)}>
+            <span className={`status-dot${missing.length ? " warn" : ""}`} />
+            <ToolFilled style={{ fontSize: 11 }} />
+            {`引擎 ${ready}/${engines.length}`}
+          </button>
+        </Tooltip>
+
+        <Tooltip title="格式能力与使用说明">
+          <button className="icon-btn" onClick={() => openHelp(true)}>
+            <QuestionCircleOutlined style={{ fontSize: 14 }} />
+          </button>
+        </Tooltip>
+      </div>
+    </header>
   );
 }

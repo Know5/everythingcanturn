@@ -47,7 +47,7 @@ interface State {
   engineProgress: Record<string, number>;
 
   boot: () => Promise<void>;
-  addPaths: (paths: string[]) => Promise<void>;
+  addPaths: (paths: string[]) => Promise<string[]>;
   removeFile: (path: string) => void;
   clearAll: () => Promise<void>;
   setDragOver: (v: boolean) => void;
@@ -105,7 +105,7 @@ export const useStore = create<State>((set, get) => ({
   addPaths: async (paths) => {
     const known = new Set(get().files.map((f) => f.path));
     const fresh = paths.filter((p) => !known.has(p));
-    if (!fresh.length) return;
+    if (!fresh.length) return [];
 
     set({ adding: true });
     const results = await Promise.all(
@@ -136,7 +136,7 @@ export const useStore = create<State>((set, get) => ({
     }
 
     if (ok.length) set((s) => ({ files: [...s.files, ...ok] }));
-    return void problems;
+    return problems;
   },
 
   removeFile: (path) =>
@@ -271,7 +271,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ engineProgress: { ...s.engineProgress, [key]: pct } })),
 }));
 
-/** 派生统计：底栏用 */
+/** 派生统计：任务面板用 */
 export function summary(files: FileRow[]) {
   let pending = 0;
   let done = 0;
