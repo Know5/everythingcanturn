@@ -283,3 +283,23 @@ def test_animated_source_to_heic_exports_every_frame(tmp_path):
     res = convert_file(src, "heic", out_dir=tmp_path, overwrite=True)
     assert len(res.outputs) == 3, "动图转 HEIC 必须导出每帧，而不是静默只留首帧"
     assert any("帧" in str(w) for w in res.warnings)
+
+
+def test_jpegxl_roundtrip(tmp_path):
+    """装有 pillow-jxl-plugin 时,PNG→JXL→PNG 应可用且能嗅探。"""
+    from convcore.plugins.image import _HAS_JXL
+    from convcore.sniff import sniff
+
+    if not _HAS_JXL:
+        pytest.skip("需要 pillow-jxl-plugin")
+
+    src = tmp_path / "gradient.png"
+    _gradient((64, 48)).save(src)
+    enc = convert_file(src, "jxl", out_path=tmp_path / "gradient.jxl", overwrite=True)
+    assert sniff(enc.outputs[0].path) == "image/jxl"
+
+    dec = convert_file(
+        enc.outputs[0].path, "png", out_path=tmp_path / "back.png", overwrite=True
+    )
+    with Image.open(dec.outputs[0].path) as im:
+        assert im.size == (64, 48)

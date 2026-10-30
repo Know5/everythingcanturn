@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **JPEG XL（可选）**：`pip install -e ".[jxl]"` 后通过 Pillow 插件读写 `.jxl`；
+  未装时 JXL 不作为目标出现。支持 lossless 预设与 effort 参数
 - **音视频拼接**：`convcore convert a.mp4 b.mp4 -t mp4 --concat -o joined.mp4`，
   或调用 `convcore.plugins.media.concat_media`。同编码走 ffmpeg concat demuxer
   的 `-c copy`，不重编码；编码/流布局不一致时自动回退到 H.264/AAC 中间文件。

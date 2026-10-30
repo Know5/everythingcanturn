@@ -85,3 +85,11 @@ def test_mime_aliases_normalized():
     assert normalize("image/heif") == "image/heic"
     assert normalize("IMAGE/JPG") == "image/jpeg"
     assert normalize("image/png; charset=binary") == "image/png"
+
+
+def test_jxl_signature_and_codestream():
+    from convcore.sniff import sniff_bytes
+
+    container = b"\x00\x00\x00\x0cJXL \r\n\x87\n" + b"\x00" * 32
+    assert sniff_bytes(container) == "image/jxl"
+    assert sniff_bytes(b"\xff\x0a" + b"\x00" * 32) == "image/jxl"

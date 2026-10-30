@@ -11,6 +11,13 @@ from typing import Any
 
 from PIL import Image
 
+try:  # 可选：pillow-jxl-plugin 注册 JXL 编解码器
+    import pillow_jxl  # noqa: F401
+
+    _HAS_JXL = ".jxl" in Image.registered_extensions()
+except ImportError:
+    _HAS_JXL = False
+
 from ..ir.raster import Raster
 from ..policy import Policy, Strategy
 from ..registry import register
@@ -72,6 +79,13 @@ _WRITE_SPEC: dict[MediaType, dict[str, Any]] = {
     },
     "image/x-tga": {"pil": "TGA", "modes": ("RGBA", "RGB", "L"), "alpha": True, "anim": False},
 }
+if _HAS_JXL:
+    _WRITE_SPEC["image/jxl"] = {
+        "pil": "JXL",
+        "modes": ("RGBA", "RGB", "L"),
+        "alpha": True,
+        "anim": False,
+    }
 
 # ICO 的标准尺寸集。Windows 会按需挑选，所以要多尺寸打包而不是只存一张。
 _ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
@@ -85,6 +99,7 @@ class PillowCodec:
     domain = "raster"
 
     reads = (
+        *(caps("image/jxl") if _HAS_JXL else ()),
         *caps(
             "image/png",
             "image/gif",
@@ -99,6 +114,15 @@ class PillowCodec:
     )
 
     writes = (
+        *(
+            caps(
+                "image/jxl",
+                loss=LossTier.LOSSY,
+                options=_GEOM_OPTS | {"quality", "lossless", "effort"},
+            )
+            if _HAS_JXL
+            else ()
+        ),
         *caps("image/png", options=_GEOM_OPTS | {"optimize", "compress_level"}),
         *caps(
             "image/jpeg",
@@ -213,7 +237,9 @@ class PillowCodec:
             raster,
             pol,
             icc=target in ("image/png", "image/jpeg", "image/webp", "image/tiff"),
-            exif=target in ("image/jpeg", "image/webp", "image/png", "image/tiff"),
+            exif=target in (
+                "image/jpeg", "image/webp", "image/png", "image/tiff", "image/jxl",
+            ),
         )
 
         if target == "image/jpeg":
@@ -253,6 +279,19 @@ class PillowCodec:
             kw["optimize"] = bool(options.get("optimize", False))
             if "compress_level" in options:
                 kw["compress_level"] = int(options["compress_level"])
+
+        elif target == "image/jxl":
+            lossless = options.get("lossless")
+            if lossless == "auto":
+                lossless = (raster.source_type or "") in (
+                    "image/png", "image/bmp", "image/tiff", "image/gif",
+                    "image/x-portable-pixmap", "image/x-tga", "image/jxl",
+                )
+            if lossless:
+                kw["lossless"] = True
+            else:
+                kw["quality"] = int(options.get("quality", 90))
+            kw["effort"] = int(options.get("effort", 7))
 
         elif target == "image/tiff":
             kw["compression"] = options.get("compression", "tiff_deflate")

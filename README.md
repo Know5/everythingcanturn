@@ -58,7 +58,7 @@ pip install -e ".[image,document,data,archive,font]"
 pip install -e ".[all]"
 ```
 
-可用 extras：`image`、`raw`、`vector`、`document`、`pdf2docx`、`data`、
+可用 extras：`image`、`jxl`、`raw`、`vector`、`document`、`pdf2docx`、`data`、
 `archive`、`font`、`ocr`、`desktop`。这些 extras 只安装 Python 包；FFmpeg、LibreOffice、
 Tesseract、resvg 可执行文件和 RAR 的 UnRAR 后端仍需按下方说明单独安装。
 
@@ -78,6 +78,7 @@ dist/convcore/
   也可以使用 [resvg 单文件](https://github.com/linebender/resvg/releases)。
 - **vtracer**：位图描摹成 SVG（PNG/JPG → SVG）。`pip install -e ".[vector]"`，
   未装时描摹桥整体从目标列表消失（图搜索按依赖门控）。
+- **JPEG XL**：`pip install -e ".[jxl]"`（pillow-jxl-plugin）。未装时 JXL 不会作为目标出现。
 - **rawpy**：相机 RAW 格式（CR2/NEF/ARW）。`pip install -e ".[raw]"`。
 - **Tesseract**：扫描 PDF / 图片 OCR。先 `pip install -e ".[ocr]"`，再装
   [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki)（约 50MB）。中文需要额外

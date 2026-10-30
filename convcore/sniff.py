@@ -19,6 +19,15 @@ from .types import MediaType
 _ZIP_MAGIC = b"PK\x03\x04"
 
 
+def _sniff_jxl(head: bytes) -> MediaType | None:
+    """JPEG XL 容器签名或裸 codestream 起始码。"""
+    if head.startswith(b"\x00\x00\x00\x0cJXL \r\n\x87\n"):
+        return "image/jxl"
+    if head.startswith(b"\xff\x0a"):
+        return "image/jxl"
+    return None
+
+
 def _sniff_isobmff(head: bytes) -> MediaType | None:
     """ISO 基础媒体格式家族靠 ftyp brand 区分：MP4 / MOV / HEIC / AVIF 同一套容器。
 
@@ -121,7 +130,7 @@ def sniff_bytes(data: bytes, filename: str | None = None) -> MediaType | None:
     head = data[:4096]
 
     # 手工判定优先：这些格式 puremagic 给不出足够粒度
-    for probe in (_sniff_isobmff(head), _sniff_zip_container(head, data)):
+    for probe in (_sniff_jxl(head), _sniff_isobmff(head), _sniff_zip_container(head, data)):
         if probe:
             return probe
 

@@ -34,8 +34,7 @@ _TABLE: list[tuple[MediaType, Domain, tuple[str, ...], str]] = [
     ("image/vnd.microsoft.icon", "raster", (".ico",), "ICO"),
     ("image/avif", "raster", (".avif",), "AVIF"),
     ("image/heic", "raster", (".heic", ".heif"), "HEIC"),
-    # JPEG XL 留在表外：无插件实现，列进来只会让 UI 显示不可达目标。
-    # 真要支持时走 Pillow（pillow-jxl-plugin）再加回。
+    ("image/jxl", "raster", (".jxl",), "JPEG XL"),
     ("image/vnd.adobe.photoshop", "raster", (".psd",), "Photoshop"),
     ("image/x-portable-pixmap", "raster", (".ppm", ".pgm", ".pbm", ".pnm"), "Netpbm"),
     ("image/x-tga", "raster", (".tga",), "TGA"),
