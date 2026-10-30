@@ -512,3 +512,32 @@ def test_pdf_to_word_maps_different_headers_per_page(tmp_path):
     body = "\n".join(p.text for p in d.paragraphs)
     assert "Chapter A" not in body
     assert "Confidential" not in body
+
+
+def test_pdf_to_word_moves_header_images(tmp_path):
+    """PDF 页眉 logo 应搬进 Word header，正文不重复。"""
+    import io
+
+    import pymupdf
+    from PIL import Image
+    from docx.oxml.ns import qn
+
+    logo = io.BytesIO()
+    Image.new("RGB", (40, 20), "red").save(logo, "PNG")
+    src = tmp_path / "header-image.pdf"
+    doc = pymupdf.open()
+    for i in range(2):
+        page = doc.new_page(width=595, height=842)
+        page.insert_image(pymupdf.Rect(40, 20, 100, 50), stream=logo.getvalue())
+        page.insert_text((60, 80), f"Section {i + 1}", fontsize=16)
+        page.insert_text((60, 120), "Body text " * 10, fontsize=10)
+    doc.save(src)
+    doc.close()
+
+    res = convert_file(src, "docx", out_dir=tmp_path, overwrite=True)
+    d = _docx(res.outputs[0].path)
+    assert len(d.inline_shapes) == 0
+    assert all(
+        section.header.paragraphs[0]._p.findall(".//" + qn("a:blip"))
+        for section in d.sections
+    )

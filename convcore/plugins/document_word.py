@@ -203,6 +203,7 @@ class PdfToWord:
         不要求页眉跨页重复：不同章节使用不同页眉是正常排版。调用方只在
         多页转换时应用，单页仍然不搬，避免把正文大标题误判成页眉。
         """
+        import hashlib
         import re
 
         import pymupdf
@@ -256,6 +257,36 @@ class PdfToWord:
 
                 top.sort()
                 bottom.sort()
+
+                def images_in(band: str) -> list[dict[str, Any]]:
+                    found: list[dict[str, Any]] = []
+                    seen: set[str] = set()
+                    for pic in page.get_image_info(xrefs=True):
+                        bbox = pic.get("bbox")
+                        xref = pic.get("xref")
+                        if not bbox or not xref:
+                            continue
+                        x0, y0, x1, y1 = (float(v) for v in bbox)
+                        where = "top" if y1 < 55 else ("bottom" if y0 > height - 55 else None)
+                        if where != band:
+                            continue
+                        try:
+                            raw = doc.extract_image(int(xref))["image"]
+                        except Exception:
+                            continue
+                        digest = hashlib.sha256(raw).hexdigest()
+                        if digest in seen:
+                            continue
+                        seen.add(digest)
+                        found.append(
+                            {
+                                "data": raw,
+                                "width": max(1.0, x1 - x0),
+                                "height": max(1.0, y1 - y0),
+                            }
+                        )
+                    return found
+
                 page_where = None
                 if page_hits:
                     counts: dict[str, int] = {}
@@ -266,6 +297,8 @@ class PdfToWord:
                     {
                         "header": "  ·  ".join(item[2] for item in top),
                         "footer": "  ·  ".join(item[2] for item in bottom),
+                        "headerImages": images_in("top"),
+                        "footerImages": images_in("bottom"),
                         "pageWhere": page_where,
                         "pageTexts": {text for _, text in page_hits},
                     }
@@ -314,8 +347,12 @@ class PdfToWord:
         try:
             import re
 
+            import hashlib
+            import io
+
             import docx
-            from docx.shared import Pt
+            from docx.oxml.ns import qn
+            from docx.shared import Inches, Pt
 
             infos = self._page_margin_info(src, indices, password)
             headers = {info["header"] for info in infos if info["header"]}
@@ -323,10 +360,35 @@ class PdfToWord:
             page_texts = {
                 text for info in infos for text in info.get("pageTexts", set())
             }
-            if not headers and not footers and not page_texts:
+            image_count = sum(
+                len(info.get("headerImages", [])) + len(info.get("footerImages", []))
+                for info in infos
+            )
+            if not headers and not footers and not page_texts and not image_count:
                 return
 
             doc = docx.Document(str(docx_path))
+
+            # pdf2docx 会把页眉 logo 当正文图片；按字节哈希移回 header/footer，
+            # 避免正文留下重复图片。
+            margin_hashes = {
+                hashlib.sha256(image["data"]).hexdigest()
+                for info in infos
+                for image in info.get("headerImages", []) + info.get("footerImages", [])
+            }
+            if margin_hashes:
+                for blip in list(doc.element.body.iter(qn("a:blip"))):
+                    rid = blip.get(qn("r:embed"))
+                    part = doc.part.related_parts.get(rid) if rid else None
+                    blob = getattr(part, "blob", None)
+                    if not blob or hashlib.sha256(blob).hexdigest() not in margin_hashes:
+                        continue
+                    drawing = blip
+                    while drawing is not None and drawing.tag != qn("w:drawing"):
+                        drawing = drawing.getparent()
+                    if drawing is not None and drawing.getparent() is not None:
+                        drawing.getparent().remove(drawing)
+
             targets = {
                 re.sub(r"\s+", " ", text).strip().lower()
                 for text in headers | footers | page_texts
@@ -348,6 +410,7 @@ class PdfToWord:
                 per_section = [
                     infos[i] if i < len(infos) else {
                         "header": "", "footer": "", "pageWhere": None,
+                        "headerImages": [], "footerImages": [],
                     }
                     for i in range(len(sections))
                 ]
@@ -372,6 +435,23 @@ class PdfToWord:
                 for run in fp.runs:
                     run.font.size = Pt(8)
 
+                for hp_img in info.get("headerImages", []):
+                    try:
+                        hp.add_run().add_picture(
+                            io.BytesIO(hp_img["data"]),
+                            width=Inches(min(2.5, hp_img["width"] / 72)),
+                        )
+                    except Exception:
+                        pass
+                for fp_img in info.get("footerImages", []):
+                    try:
+                        fp.add_run().add_picture(
+                            io.BytesIO(fp_img["data"]),
+                            width=Inches(min(2.5, fp_img["width"] / 72)),
+                        )
+                    except Exception:
+                        pass
+
                 where = info.get("pageWhere")
                 if where == "top":
                     if hp.text:
@@ -382,13 +462,15 @@ class PdfToWord:
                         fp.add_run("  ·  ")
                     self._add_page_field(fp)
 
-            if removed or headers or footers or page_texts:
+            if removed or headers or footers or page_texts or image_count:
                 doc.save(str(docx_path))
                 parts = []
                 if headers:
                     parts.append(f"{len(headers)} 种页眉")
                 if footers:
                     parts.append(f"{len(footers)} 种页脚")
+                if image_count:
+                    parts.append(f"{image_count} 张页眉页脚图片")
                 if page_texts:
                     parts.append("页码")
                 msg = "已把每页的 " + "、".join(parts) + " 搬进 Word 页眉/页脚"

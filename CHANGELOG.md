@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   转 Markdown/HTML/DOCX 不再丢图
 - **DOCX 页眉/页脚图片**：解析时提取页眉页脚图片并放在正文首尾，正文图片逻辑不变
 - **PDF→Word 页眉页脚与页码**：按页提取页眉/页脚并映射到对应 Word section；
-  支持每页不同页眉；页码转为 Word PAGE 域，不再留静态数字；单页文档不搬，
-  避免误伤标题
+  支持每页不同页眉；页眉/页脚图片按字节哈希从正文搬回 header/footer；
+  页码转为 Word PAGE 域，不再留静态数字；单页文档不搬，避免误伤标题
 - **PDF→Word 跨页表格**：相邻表格列数、表头一致且中间只有分页/分节/表外残留行时
   合并为一张，重复表头只保留一次；表外最后一行会按制表符补回表内
 - **Excel 保真**：XLSX→XLSX 保留公式文本（即使源文件没有缓存计算结果），
