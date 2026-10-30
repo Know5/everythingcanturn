@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Excel 保真**：XLSX→XLSX 保留公式文本（即使源文件没有缓存计算结果），
+  写回时给日期/时间单元格设置 Excel 数字格式；CSV 日期输出不再带无意义的 `00:00:00`
 - **JPEG XL（可选）**：`pip install -e ".[jxl]"` 后通过 Pillow 插件读写 `.jxl`；
   未装时 JXL 不作为目标出现。支持 lossless 预设与 effort 参数
 - **音视频拼接**：`convcore convert a.mp4 b.mp4 -t mp4 --concat -o joined.mp4`，

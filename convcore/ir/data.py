@@ -106,6 +106,12 @@ class Sheet:
     types: list[str] = field(default_factory=list)
     """每列的推断类型：int / float / bool / date / str。空则未推断。"""
 
+    formulas: dict[tuple[int, int], str] = field(default_factory=dict)
+    """(数据行下标, 列下标) → Excel 公式文本；仅 XLSX→XLSX 保留。
+
+    行下标不含表头；没有缓存的公式单元格也能在写回 Excel 时不丢失。
+    """
+
     @property
     def shape(self) -> tuple[int, int]:
         return len(self.rows), len(self.columns)

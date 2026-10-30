@@ -417,3 +417,49 @@ def test_xlsx_to_html_renders_table(json_file, tmp_path):
 
     assert "<table>" in html and "<th>" in html
     assert "张三" in html
+
+
+def test_xlsx_preserves_formulas_and_date_formats(tmp_path):
+    """XLSX→XLSX 应保留公式文本，并给日期单元格补 Excel 数字格式。"""
+    import datetime as dt
+
+    import openpyxl
+
+    src = tmp_path / "formula.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["a", "b", "sum", "day"])
+    ws.append([1, 2, "=A2+B2", dt.date(2024, 1, 2)])
+    wb.save(src)
+
+    out = convert_file(
+        src, "xlsx", out_path=tmp_path / "out.xlsx", overwrite=True
+    ).outputs[0].path
+
+    wb2 = openpyxl.load_workbook(out, data_only=False)
+    try:
+        ws2 = wb2.active
+        assert ws2["C2"].value == "=A2+B2"
+        assert ws2["D2"].value == dt.datetime(2024, 1, 2)
+        assert ws2["D2"].number_format.startswith("yyyy-mm-dd")
+    finally:
+        wb2.close()
+
+
+def test_xlsx_date_to_csv_is_readable(tmp_path):
+    """日期转 CSV 不应输出无意义的 00:00:00。"""
+    import datetime as dt
+
+    import openpyxl
+
+    src = tmp_path / "date.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["day"])
+    ws.append([dt.date(2024, 1, 2)])
+    wb.save(src)
+
+    res = convert_file(src, "csv", out_dir=tmp_path, overwrite=True)
+    text = res.outputs[0].path.read_bytes().decode("utf-8-sig")
+    assert "2024-01-02" in text
+    assert "00:00:00" not in text

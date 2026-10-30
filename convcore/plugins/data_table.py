@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import date, datetime, time
 from typing import Any
 
 from ..ir.data import Sheet, Table, coerce, infer_type
@@ -50,6 +51,19 @@ def _decode_csv(data: bytes, forced: str | None = None) -> tuple[str, str]:
         except UnicodeDecodeError:
             continue
     return data.decode("utf-8", "replace"), "utf-8(replace)"
+
+
+def _cell_text(value: Any) -> str:
+    """给 CSV/文本输出用的单元格文本；日期不要带无意义的 00:00:00。"""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        if value.time() == time.min:
+            return value.date().isoformat()
+        return value.isoformat(sep=" ")
+    if isinstance(value, (date, time)):
+        return value.isoformat()
+    return str(value)
 
 
 def _sniff_delimiter(sample: str, default: str = ",") -> str:
@@ -257,10 +271,17 @@ class TableCodec:
     def _read_xlsx(self, res: Resource, options: dict[str, Any], pol: Policy) -> Table:
         import openpyxl
 
+        data = io.BytesIO(res.read_bytes())
         wb = openpyxl.load_workbook(
-            io.BytesIO(res.read_bytes()),
+            data,
             read_only=True,
             data_only=True,  # 取公式的计算结果而非公式本身
+        )
+        data.seek(0)
+        wb_formula = openpyxl.load_workbook(
+            data,
+            read_only=True,
+            data_only=False,
         )
         try:
             want = options.get("sheet")
@@ -275,28 +296,55 @@ class TableCodec:
             sheets: list[Sheet] = []
             for name in names:
                 ws = wb[name]
-                rows = [
-                    [c for c in row]
-                    for row in ws.iter_rows(values_only=True)
-                    if any(c is not None and str(c).strip() for c in row)
-                ]
-                if not rows:
+                wsf = wb_formula[name]
+                values = list(ws.iter_rows(values_only=True))
+                raw_formulas = list(wsf.iter_rows(values_only=True))
+
+                kept: list[int] = []
+                for ri, row in enumerate(values):
+                    fr = raw_formulas[ri] if ri < len(raw_formulas) else ()
+                    has_value = any(
+                        c is not None and str(c).strip() for c in row
+                    )
+                    has_formula = any(
+                        isinstance(c, str) and c.startswith("=") for c in fr
+                    )
+                    if has_value or has_formula:
+                        kept.append(ri)
+                if not kept:
                     continue
+
+                header_i = kept[0]
+                header = values[header_i]
                 columns = [
                     str(c).strip() if c is not None else f"列{i+1}"
-                    for i, c in enumerate(rows[0])
+                    for i, c in enumerate(header)
                 ]
                 width = len(columns)
+                body_src = kept[1:]
                 body = [
-                    list(r) + [None] * (width - len(r)) if len(r) < width else list(r[:width])
-                    for r in rows[1:]
+                    list(values[ri]) + [None] * (width - len(values[ri]))
+                    if len(values[ri]) < width
+                    else list(values[ri][:width])
+                    for ri in body_src
                 ]
-                sheets.append(Sheet(name=name, columns=columns, rows=body))
+
+                formulas: dict[tuple[int, int], str] = {}
+                for bi, ri in enumerate(body_src):
+                    fr = raw_formulas[ri] if ri < len(raw_formulas) else ()
+                    for ci, cell in enumerate(fr[:width]):
+                        if isinstance(cell, str) and cell.startswith("="):
+                            formulas[(bi, ci)] = cell
+
+                sheets.append(
+                    Sheet(name=name, columns=columns, rows=body, formulas=formulas)
+                )
 
             pol.note(
                 "Excel 特性",
                 Strategy.DROP,
-                "公式已取计算结果；单元格格式、图表、批注和合并单元格未保留",
+                "公式结果用于非 Excel 输出；XLSX→XLSX 会保留公式文本。"
+                "单元格样式、条件格式、图表、批注和合并单元格未保留",
             )
             if len(wb.sheetnames) > 1 and not want:
                 pol.note(
@@ -387,7 +435,7 @@ class TableCodec:
         w = csv.writer(buf, delimiter=delim, lineterminator="\n")
         w.writerow(sheet.columns)
         for row in sheet.rows:
-            w.writerow(["" if v is None else v for v in row])
+            w.writerow([_cell_text(v) for v in row])
 
         # 带 BOM 写出：Excel 打开无 BOM 的 UTF-8 CSV 会把中文显示成乱码。
         # 这是 Windows 用户最常遇到的问题，默认加 BOM 更实用。
@@ -460,8 +508,25 @@ class TableCodec:
             for cell in ws[1]:
                 cell.font = Font(bold=True)
 
-            for row in s.rows:
-                ws.append(["" if v is None else v for v in row])
+            for ri, row in enumerate(s.rows):
+                cells = []
+                for ci, v in enumerate(row):
+                    formula = s.formulas.get((ri, ci))
+                    cells.append(formula if formula is not None else ("" if v is None else v))
+                ws.append(cells)
+
+            # 日期要显式给 Excel 数字格式；否则可能显示成序列号
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    v = cell.value
+                    if isinstance(v, datetime):
+                        cell.number_format = (
+                            "yyyy-mm-dd hh:mm:ss" if v.time() != time.min else "yyyy-mm-dd"
+                        )
+                    elif isinstance(v, date):
+                        cell.number_format = "yyyy-mm-dd"
+                    elif isinstance(v, time):
+                        cell.number_format = "hh:mm:ss"
 
             # 冻结表头行，大表浏览时表头始终可见
             ws.freeze_panes = "A2"
@@ -500,7 +565,7 @@ def table_to_doctree(table: Table, opts: dict[str, Any], pol: Policy):
                         blocks=[
                             Block(
                                 PARAGRAPH,
-                                spans=[Span("" if v is None else str(v))],
+                                spans=[Span(_cell_text(v))],
                             )
                         ]
                     )
