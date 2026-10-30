@@ -44,13 +44,13 @@
   - 源文件 == 输出路径时拒绝
 
 ### 7. **并发安全（GUI）** ✅
-- `desktop/app.py:138`: 全局锁保护共享状态
-- `app.py:342-350`: 每个任务独立线程 + Event 取消
-- `_jobs` 字典通过 `_lock` 同步（虽未见显式加锁，但 dict 更新在 CPython GIL 下原子）
+- `uiservice.py:442`: `UiService` 用 `threading.RLock` 保护任务表
+- `uiservice.py:505`: 每个任务独立线程 + `threading.Event` 取消
+- 任务状态读改写都在锁内，进度推送在锁外调用回调，避免前端阻塞工作线程
 
 ### 8. **前端 XSS** ✅
-- `webui/static/desktop.js:25-26`: `textContent` 转义后再取 `innerHTML`
-- 所有用户可控输入（文件名、路径、错误消息）都走 `textContent`
+- `ui/src` 全部由 React 渲染，默认转义；没有 `dangerouslySetInnerHTML`
+- 浏览器版 `webui/static/app.js` 的用户可控文本走 `textContent`/`escapeHtml`
 - 只有静态模板走 `innerHTML`
 
 ### 9. **内存限制** ✅

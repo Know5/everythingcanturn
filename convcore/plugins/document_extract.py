@@ -13,7 +13,7 @@ def document_to_table(
 ) -> Table:
     """从 PDF 提取表格，返回 Table IR。
 
-    使用 pdfplumber 提取第一个可识别的表格。
+    使用 pdfplumber 逐页提取可识别的表格，每张表一个 sheet。
     """
     try:
         import pdfplumber

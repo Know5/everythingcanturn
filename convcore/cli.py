@@ -628,7 +628,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
         )
         return 1
 
-    run(debug=args.debug)
+    run(debug=args.debug, dev_url=getattr(args, "ui_dev", None))
     return 0
 
 
@@ -724,6 +724,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = sub.add_parser("gui", help="启动桌面客户端（原生窗口）")
     g.add_argument("--debug", action="store_true", help="开启 WebView 开发者工具")
+    g.add_argument(
+        "--ui-dev",
+        metavar="URL",
+        help="指向 Vite 开发服务器（如 http://localhost:5173），改前端不用重新构建",
+    )
     g.set_defaults(fn=cmd_gui)
 
     u = sub.add_parser("ui", help="启动浏览器版界面（无法拖放取路径）")

@@ -18,7 +18,7 @@ from typing import Any
 
 from ..policy import Policy, Strategy
 from ..registry import register
-from ..types import ConversionError, LossTier, MediaType, Resource, caps
+from ..types import ConversionError, MediaType, Resource, caps
 from ._scratch import workdir
 
 

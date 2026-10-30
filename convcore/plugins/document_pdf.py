@@ -28,8 +28,8 @@ _OPTS = frozenset({"pages", "password", "rotate", "split", "owner_password", "us
 class PdfStructure:
     """PDF → PDF 的结构操作。
 
-    注册成 writer 而非 DirectConverter，因为它接的是文档域枢纽产出的
-    DocumentRef——已经探测过的信息可以复用，不必重新打开文件判断页数。
+    注册成普通 writer，因为它接的是文档域枢纽产出的 DocumentRef——
+    已经探测过的信息可以复用，不必重新打开文件判断页数。
     """
 
     name = "pypdf"

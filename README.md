@@ -1,9 +1,9 @@
 # everythingcanturn
 
-**任意相关文件格式互转** — 一个本地运行、53 种可双向互转格式的转换引擎。
+**任意相关文件格式互转** — 一个本地运行、54 种可双向互转格式的转换引擎。
 
-> 关于格式数量的诚实说明：这里说「53 种可双向互转」，是**实际验证过读和写都通**的
-> 数量。另有 10 种格式只能读不能写（相机 RAW、PSD、SVG、RAR——它们作为源能转出，
+> 关于格式数量的诚实说明：这里说「54 种可双向互转」，是**实际验证过读和写都通**的
+> 数量。另有 9 种格式只能读不能写（相机 RAW、PSD、RAR——它们作为源能转出，
 > 但作为目标不承诺）；6 种 Office/ODF 格式（DOC/XLS/PPT/PPTX/ODT/ODS）的读写
 > 依赖可选的 LibreOffice 引擎，未装时不可用，装了自动恢复。转换器不会展示「能识别
 > 但转不了」的目标——列出来的都是真实可达的。
@@ -154,6 +154,7 @@ convcore/
 ├── pipeline.py       # 执行器：Converter / convert_file
 ├── policy.py         # 降级策略与参数预设
 ├── jobs.py           # 批量任务队列：并发、进度、取消
+├── uiservice.py      # 桌面 / 浏览器共用：inspect、任务状态机、环境探测
 ├── ir/               # 各域中间表示：raster / document / markup / media / data
 ├── engines/          # 外部引擎：探测、子进程调用、ffmpeg 封装、下载安装
 ├── plugins/
@@ -198,8 +199,8 @@ class Codec(Protocol):
 缺这种内容的路径不会被搜出来（见下文「跨域桥接」的内容约束）。
 
 `options` 里除了用户参数，还有执行器注入的 `_tmp`（工作目录）、`_policy`（记录降级告警）、
-`_progress`、`_cancel`。同一文件还定义了绕过枢纽的 `DirectConverter` 协议，图搜索支持它，
-但目前没有插件用：remux 由媒体域的 `MediaPlan` 在写出时判定，LibreOffice 也是按 Codec 接入的。
+`_progress`、`_cancel`。所有插件都走 `Codec` 协议：remux 由媒体域的 `MediaPlan` 在写出时判定，
+LibreOffice 也按 Codec 接入，不存在绕过枢纽的直连插件。
 
 ## 转换质量
 
@@ -235,17 +236,46 @@ pytest --cov=convcore --cov-report=html
 核心测试策略：
 
 - **样本程序合成**：`tests/conftest.py` 等在测试时生成图片、动图、SVG、PDF 等样本，
-  基本不依赖入库的二进制（`test_samples/` 里的少量文件只有 LibreOffice 用例在用）；
+  基本不依赖入库的二进制（`test_samples/` 只保留 `b.docx`，供 LibreOffice 用例使用）；
   带奇怪 EXIF、非标准编码的真实文件放在手动验收里
 - **格式矩阵**：`test_matrix.py` 批量跑格式对，图像用 PSNR/SSIM 验证（`tests/fidelity.py`）
 - **往返测试**：A→B→A 验证内容保留，如 JSON→YAML→JSON、MD→HTML→MD、ZIP→7z→ZIP
 - **失败路径**：空输入、损坏文件、解压炸弹、截断下载、子进程超时与输出上限
 - **Web UI 安全边界**：`test_webui.py` 起真实服务，验证 token、Origin、Host 校验
 
+## 桌面端界面
+
+桌面窗口（`convcore gui`）是 React + TypeScript + Ant Design 的单页应用，源码在 `ui/`，
+构建产物落到 `convcore/webui/static/gui/`（不入库，打包时由 `convcore.spec` 的 `datas` 收集）。
+
+```bash
+cd ui
+npm ci
+npm run build          # 产物 → convcore/webui/static/gui/
+
+# 开发态：前端热更新，不用反复 build
+npm run dev                       # Vite 开发服务器
+convcore gui --ui-dev http://localhost:5173
+```
+
+加载方式与两个已踩过的坑（均有实测记录，别改回去）：
+
+1. **用纯 `file://` URI，不能带查询串**：Windows 后端用 .NET `Uri` 承载地址，会把 `?`
+   转义成 `%3F`，导航到不存在的文件名。防旧资源靠 Vite 的内容 hash 文件名。
+2. **`main.tsx` 必须 `import "./bridge"`**：那里注册了全局 `dragover`/`drop` 的
+   `preventDefault`。漏掉它，WebView2 会把拖入的文件当成导航目标直接打开。
+
+桌面端只加载 `ui/` 的构建产物；产物缺失时会直接报错并提示先执行
+`cd ui && npm ci && npm run build`，不再退回旧内联界面。
+设计决策与分阶段验收见 `docs/superpowers/specs/2026-10-29-desktop-ui-react-antd.md`。
+
 ## 打包
 
 ```bash
-# Windows exe（onedir 模式，254MB）
+# 1) 先构建桌面端前端（产物会进包）
+cd ui && npm ci && npm run build && cd ..
+
+# 2) Windows exe（onedir 模式，约 254MB）
 pyinstaller convcore.spec
 
 # 测试
@@ -272,7 +302,7 @@ dist/convcore/convcore.exe  # 启动 GUI
 | **vector → markup** | 内置 | LOSSLESS | SVG 嵌入 HTML |
 | **document → raster** | PyMuPDF | STRUCTURAL | PDF 渲染成图 |
 | **document → markup** | PyMuPDF | INFERRED | PDF 抽文本，按字号推断标题 |
-| **document → table** | pdfplumber | INFERRED | PDF 表格提取（取第一个表格） |
+| **document → table** | pdfplumber | INFERRED | PDF 表格提取（跨页收集所有表格） |
 | **markup → document** | PyMuPDF | STRUCTURAL | 文档树排版成 PDF |
 | **raster → document** | PyMuPDF | LOSSLESS | 每图一页嵌入 PDF |
 | **table → document** | PyMuPDF | LOSSLESS | 表格渲染为 PDF |

@@ -7,7 +7,6 @@
 边：
 - READ:  Fmt → Hub    解码（插件的 parse）
 - WRITE: Hub → Fmt    编码（插件的 write）
-- DIRECT:Fmt → Fmt    绕过枢纽的引擎原生转换（remux、LibreOffice）
 - BRIDGE:Hub → Hub    跨域桥接（栅格化、描摹、排版…），必须显式声明
 
 于是 HEIC→ICO 自动等于 READ(heic→raster) + WRITE(raster→ico)，不需要有人写过
@@ -33,8 +32,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable
 
-from .formats import domain_of, label_of, normalize
-from .registry import Capability, Codec, DirectConverter, Registry
+from .formats import label_of, normalize
+from .registry import Registry
 from .types import Domain, LossTier, MediaType, NoPathError
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,6 @@ class EdgeKind(Enum):
     """图中的边类型。"""
     READ = "read"
     WRITE = "write"
-    DIRECT = "direct"
     BRIDGE = "bridge"
 
 
@@ -85,7 +83,7 @@ class Edge:
             return f"[{self.src[1]}] → {label_of(self.dst[1])}"
         if self.kind is EdgeKind.BRIDGE:
             return f"[{self.src[1]}] ⇒ [{self.dst[1]}]"
-        return f"{label_of(self.src[1])} ⇒ {label_of(self.dst[1])} (直连)"
+        return f"{label_of(self.src[1])} → {label_of(self.dst[1])}"
 
 
 @dataclass(slots=True)
@@ -129,14 +127,9 @@ class Path:
     def materializations(self) -> int:
         """中间落盘的格式数。Fmt→Hub→Fmt 是 0，DOC→DOCX→MD 是 1。
 
-        这个量才是「路径有多绕」的正确度量，比数跳数准——经枢纽的两跳
-        其实是一次转换。
+        经枢纽的两跳其实是一次转换；只有路径中间出现 Fmt 节点才算多绕了一层。
         """
-        return sum(
-            1
-            for e in self.edges[:-1]
-            if e.dst[0] == "fmt"
-        )
+        return sum(1 for e in self.edges[:-1] if e.dst[0] == "fmt")
 
     def describe(self) -> str:
         if not self.edges:
@@ -191,7 +184,7 @@ BRIDGES: tuple[tuple[Domain, Domain, LossTier, float, float], ...] = (
     ("raster", "media", LossTier.LOSSLESS, 2.5, 1.0),
     # PDF → 表格：提取文档中的表格。pdfplumber 只能抽取明确的表格结构，
     # 对于文本排版成列的"伪表格"无能为力，标 INFERRED（内容完整但结构推断）。
-    # fidelity 0.8：多页多表时只取第一个表格，版面复杂时识别不准。
+    # fidelity 0.8：多页多表逐页提取，但跨表关系与合并单元格仍可能识别不准。
     ("document", "table", LossTier.INFERRED, 5.0, 0.8),
     # 矢量 → 标记语言：SVG 直接嵌入 HTML，保留可缩放性。零损失，比栅格化更优。
     ("vector", "markup", LossTier.LOSSLESS, 1.0, 1.0),
@@ -264,7 +257,7 @@ BRIDGE_REQUIRES: dict[tuple[Domain, Domain], frozenset[str]] = {
     ("media", "raster"): frozenset({"picture"}),
     ("raster", "vector"): frozenset({"trace"}),  # 照片描出来只会是色块海报
 }
-"""桥要求输入有什么。READ / WRITE / DIRECT 边的要求来自 Capability.requires。"""
+"""桥要求输入有什么。READ / WRITE 边的要求来自 Capability.requires。"""
 
 
 def _step(lacks: frozenset[str], edge: Edge) -> frozenset[str] | None:
@@ -304,14 +297,6 @@ class FormatGraph:
                              cap.loss, cap.time_cost, codec, cap.fidelity,
                              requires=cap.requires)
                     )
-
-        for conv in registry.direct_converters():
-            for src, dst, cap in conv.direct:
-                self._add(
-                    Edge(EdgeKind.DIRECT, Fmt(src), Fmt(dst),
-                         cap.loss, cap.time_cost, conv, cap.fidelity,
-                         requires=cap.requires)
-                )
 
         live = registry.domains()
         for a, b, loss, cost, fid in BRIDGES:

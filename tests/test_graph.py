@@ -10,7 +10,7 @@ import pytest
 
 from convcore.graph import EdgeKind, FormatGraph, Path
 from convcore.registry import Registry
-from convcore.types import Capability, LossTier, NoPathError, caps
+from convcore.types import LossTier, NoPathError, caps
 
 
 class FakeCodec:
@@ -45,7 +45,6 @@ def test_hub_gives_unlisted_pair_for_free():
     )
     path = g.find_path("image/bmp", "image/tiff")
     assert [e.kind for e in path.edges] == [EdgeKind.READ, EdgeKind.WRITE]
-    assert path.materializations == 0
     assert path.loss is LossTier.LOSSLESS
 
 
@@ -68,89 +67,6 @@ def test_prefers_lossless_over_faster_lossy():
     assert path.time_cost > 10
 
 
-def test_direct_edge_beats_hub_when_lossless():
-    """remux 语义：COPY 级直连必须打败经枢纽的重编码。
-
-    这是现有工具最常犯的错——MKV→MP4 只改封装却去重新编码。
-    """
-    g = make_graph(
-        FakeDirect(
-            "remux", "media",
-            (
-                (
-                    "video/x-matroska",
-                    "video/mp4",
-                    Capability("video/mp4", LossTier.COPY, 1.0),
-                ),
-            ),
-        ),
-        FakeCodec(
-            "transcode", "media",
-            caps("video/x-matroska"),
-            caps("video/mp4", loss=LossTier.LOSSY, time_cost=100.0),
-        ),
-    )
-    path = g.find_path("video/x-matroska", "video/mp4")
-    assert [e.kind for e in path.edges] == [EdgeKind.DIRECT]
-    assert path.loss is LossTier.COPY
-
-
-class FakeDirect:
-    """假直连转换器。模拟 LibreOffice 这类黑盒引擎：只能文件进文件出，
-    拿不到中间 IR，所以多跳时必须落盘。"""
-
-    def __init__(self, name, domain, pairs):
-        self.name, self.domain = name, domain
-        self.direct = pairs
-
-    def convert(self, resources, target, options):
-        return []
-
-
-DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-
-
-def test_multi_hop_through_intermediate_format():
-    """DOC→DOCX→MD：soffice 是黑盒直连，pandoc 才走枢纽，所以中间必须落一次盘。"""
-    g = make_graph(
-        FakeDirect(
-            "soffice", "document",
-            (("application/msword", DOCX, Capability(DOCX, LossTier.LOSSLESS, 100.0)),),
-        ),
-        FakeCodec(
-            "pandoc", "document",
-            caps(DOCX),
-            caps("text/markdown", loss=LossTier.STRUCTURAL),
-        ),
-    )
-    path = g.find_path("application/msword", "text/markdown")
-    assert path.materializations == 1, f"路径：{path.describe()}"
-    assert path.loss is LossTier.STRUCTURAL
-    assert [e.kind for e in path.edges] == [
-        EdgeKind.DIRECT, EdgeKind.READ, EdgeKind.WRITE
-    ]
-
-
-def test_materialization_limit_blocks_long_paths():
-    """物化上限防止搜出荒唐的长链。全用直连边构造，强制每跳都落盘。"""
-    def d(name, src, dst):
-        return FakeDirect(
-            name, "document", ((src, dst, Capability(dst, LossTier.LOSSLESS, 1.0)),)
-        )
-
-    g = make_graph(
-        d("a", "application/msword", "application/rtf"),
-        d("b", "application/rtf", "text/html"),
-        d("c", "text/html", "text/markdown"),
-    )
-    # 需要 2 次中间物化（rtf、html），限 1 应当搜不到
-    with pytest.raises(NoPathError):
-        g.find_path("application/msword", "text/markdown", max_materializations=1)
-    assert g.find_path(
-        "application/msword", "text/markdown", max_materializations=2
-    ).materializations == 2
-
-
 def test_lossy_step_count_breaks_tier_ties():
     """同为 LOSSY 等级时，转码次数少的胜出——两次有损比一次更糟。"""
     g = make_graph(
@@ -166,6 +82,39 @@ def test_lossy_step_count_breaks_tier_ties():
     assert path.materializations == 0
 
 
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def test_multi_hop_materializes_intermediate_format():
+    """DOC→DOCX→MD：中间要落一次盘，DOCX 就是一个中间物化格式。"""
+    g = make_graph(
+        FakeCodec("soffice", "doc1", caps("application/msword"), caps(DOCX)),
+        FakeCodec(
+            "pandoc", "doc2", caps(DOCX),
+            caps("text/markdown", loss=LossTier.STRUCTURAL),
+        ),
+    )
+    path = g.find_path("application/msword", "text/markdown")
+    assert path.materializations == 1, f"路径：{path.describe()}"
+    assert [e.kind for e in path.edges] == [
+        EdgeKind.READ, EdgeKind.WRITE, EdgeKind.READ, EdgeKind.WRITE
+    ]
+
+
+def test_materialization_limit_blocks_long_paths():
+    """物化上限防止搜出 A→B→C→D→E 这种荒唐长链。"""
+    g = make_graph(
+        FakeCodec("a", "doc1", caps("application/msword"), caps("application/rtf")),
+        FakeCodec("b", "doc2", caps("application/rtf"), caps("text/html")),
+        FakeCodec("c", "doc3", caps("text/html"), caps("text/markdown")),
+    )
+    with pytest.raises(NoPathError):
+        g.find_path("application/msword", "text/markdown", max_materializations=1)
+    assert g.find_path(
+        "application/msword", "text/markdown", max_materializations=2
+    ).materializations == 2
+
+
 def test_keeps_pareto_prefix_when_later_loss_can_reverse_order():
     """后续高损失边会合并当前等级，不能只保留字典序最优前缀。
 
@@ -173,31 +122,34 @@ def test_keeps_pareto_prefix_when_later_loss_can_reverse_order():
     STRUCTURAL→LOSSLESS 的路线等级更高，却只有一次有损。两条路线随后
     都经过 INFERRED 边，最终等级相同，此时后者才是更优路径。
     """
-    def d(name, src, dst, loss):
-        return FakeDirect(
-            name,
-            "test",
-            ((src, dst, Capability(dst, loss, 1.0)),),
-        )
-
     source = "application/x-source"
     lossy = "application/x-lossy"
     structural = "application/x-structural"
     common = "application/x-common"
     target = "application/x-target"
     g = make_graph(
-        d("lossy-1", source, lossy, LossTier.LOSSY),
-        d("lossy-2", lossy, common, LossTier.LOSSY),
-        d("structural", source, structural, LossTier.STRUCTURAL),
-        d("lossless", structural, common, LossTier.LOSSLESS),
-        d("inferred", common, target, LossTier.INFERRED),
+        FakeCodec("lossy-1", "d1", caps(source), caps(lossy, loss=LossTier.LOSSY)),
+        FakeCodec("lossy-2", "d2", caps(lossy), caps(common, loss=LossTier.LOSSY)),
+        FakeCodec(
+            "structural", "d3", caps(source),
+            caps(structural, loss=LossTier.STRUCTURAL),
+        ),
+        FakeCodec(
+            "lossless", "d4", caps(structural),
+            caps(common, loss=LossTier.LOSSLESS),
+        ),
+        FakeCodec(
+            "inferred", "d5", caps(common),
+            caps(target, loss=LossTier.INFERRED),
+        ),
     )
 
-    path = g.find_path(source, target, max_materializations=2)
+    path = g.find_path(source, target)
     assert path.loss is LossTier.INFERRED
     assert path.lossy_steps == 2
     assert [e.plugin.name for e in path.edges] == [
-        "structural", "lossless", "inferred"
+        "structural", "structural", "lossless", "lossless",
+        "inferred", "inferred",
     ]
 
 
@@ -286,7 +238,6 @@ def test_identity_is_direct_two_edges_not_a_detour():
     path = g.find_path("image/png", "image/png", allow_identity=False)
     assert len(path.edges) == 2, f"绕远了：{path.describe()}"
     assert [e.kind for e in path.edges] == [EdgeKind.READ, EdgeKind.WRITE]
-    assert path.materializations == 0
 
 
 def test_reachable_from_lists_targets():

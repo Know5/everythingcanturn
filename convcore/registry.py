@@ -4,17 +4,13 @@
 「我能把 X 解码成本域 IR」和「我能把本域 IR 编码成 Y」，两两组合由图搜索完成。
 新增一个格式只需注册一个插件，所有经由它的多跳路径自动出现。
 
-两类插件：
-- Codec：经领域枢纽（parse → IR → write），绝大多数插件是这类。
-- DirectConverter：绕过枢纽的引擎原生路径。存在的理由是 remux——MKV→MP4 只改
-  封装，解码成 IR 再编码会白丢一代质量。也用于 LibreOffice 这种黑盒引擎。
+插件只有 Codec 一类：经领域枢纽（parse → IR → write）。
 """
 
 from __future__ import annotations
 
 __all__ = [
     "Codec",
-    "DirectConverter",
     "Registry",
     "register",
     "default_registry",
@@ -22,7 +18,7 @@ __all__ = [
 
 from typing import Any, Protocol, runtime_checkable
 
-from .formats import domain_of, normalize
+from .formats import normalize
 from .types import Capability, Domain, MediaType, Resource
 
 
@@ -46,21 +42,7 @@ class Codec(Protocol):
         ...
 
 
-@runtime_checkable
-class DirectConverter(Protocol):
-    """绕过枢纽的直连转换器。"""
-
-    name: str
-    domain: Domain
-    direct: tuple[tuple[MediaType, MediaType, Capability], ...]
-
-    def convert(
-        self, resources: list[Resource], target: MediaType, options: dict[str, Any]
-    ) -> list[Resource]:
-        ...
-
-
-Plugin = Codec | DirectConverter
+Plugin = Codec
 
 
 class Registry:
@@ -130,16 +112,11 @@ class Registry:
         """
         return [p for p in self._plugins if hasattr(p, "parse") or hasattr(p, "write")]
 
-    def direct_converters(self) -> list[DirectConverter]:
-        return [p for p in self._plugins if hasattr(p, "direct")]
-
     def readable(self) -> set[MediaType]:
         out: set[MediaType] = set()
         for p in self.codecs():
             if hasattr(p, "parse"):
                 out.update(c.media_type for c in p.reads)
-        for d in self.direct_converters():
-            out.update(src for src, _, _ in d.direct)
         return out
 
     def writable(self) -> set[MediaType]:
@@ -147,8 +124,6 @@ class Registry:
         for p in self.codecs():
             if hasattr(p, "write"):
                 out.update(c.media_type for c in p.writes)
-        for d in self.direct_converters():
-            out.update(dst for _, dst, _ in d.direct)
         return out
 
     def domains(self) -> set[Domain]:
@@ -176,7 +151,7 @@ def register(cls):
     用装饰器而不是配置文件：插件的能力声明和实现放在一起，加格式时只碰一个文件。
 
     Args:
-        cls: 插件类（Codec 或 DirectConverter）
+        cls: 插件类
 
     Returns:
         cls: 原类（装饰器透传）

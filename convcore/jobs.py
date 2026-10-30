@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .pipeline import Converter, convert_file
-from .types import Cancelled, ConversionError, ConvertResult
+from .types import Cancelled, ConvertResult
 
 
 class JobState(Enum):

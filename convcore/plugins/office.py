@@ -10,7 +10,6 @@ EPUB 自己实现而不用 ebooklib：ebooklib 是 AGPL，传染性比 GPL 更�
 from __future__ import annotations
 
 import zipfile
-from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
@@ -238,7 +237,6 @@ class DocxCodec:
         import io
 
         import docx
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.shared import Pt
 
         pol: Policy = options.get("_policy") or Policy()

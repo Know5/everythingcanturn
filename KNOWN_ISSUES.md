@@ -1,21 +1,27 @@
 # 已知问题与后续建议
 
-> 记录截至 2026-10-08 的状态。用于交接给下一个会话或贡献者，避免重复排查。
+> 记录截至 2026-10-30 的状态。用于交接给下一个会话或贡献者，避免重复排查。
 > 安全的优先级分析见 [SECURITY_REVIEW.md](SECURITY_REVIEW.md)。
 > 本文件和 README 描述的能力都应能在代码里找到对应；对不上时以代码为准，并回来修文档。
 
 ## 一、测试覆盖率短板
 
-当前覆盖率 **73%**（6706 语句，1797 未覆盖）。除以下模块外，其余均 ≥85%。
+本机全依赖环境最近一次全量统计：**80%**（7111 语句，1412 未覆盖；379 passed / 3 skipped）。
+低于 85% 的主要模块：
 
 | 模块 | 覆盖率 | 原因 |
 |------|--------|------|
-| `cli.py` | 0% | 命令行入口。`main(argv)` 可直接调用，CI 冒烟测试走的也是 CLI，只是还没写 pytest 用例 |
-| `webui/server.py` | 68% | `tests/test_webui.py` 起真实服务测安全边界和转换主路径；未覆盖的是原生选择框、reveal 等系统集成 |
+| `cli.py` | 67% | 命令分发的集成测试已补；`engines install/check` 的网络分支仍未覆盖 |
+| `uiservice.py` | 79% | 共享 UI 状态机；两个前端测试覆盖主路径，取消/引擎安装的边角分支仍少 |
+| `webui/server.py` | 66% | `tests/test_webui.py` 起真实服务测安全边界和转换主路径；未覆盖原生选择框等系统集成 |
+| `desktop/app.py` | 44% | pywebview 原生窗口，需 GUI 环境；纯逻辑已移入 `uiservice.py` |
 | `engines/install.py` | 50% | 大量分支依赖真实网络下载（HTTPS/SHA256/解压），本地无法触发 |
-| `plugins/office_soffice.py` | 51% | 依赖外部 LibreOffice（soffice），当前环境未装 |
-| `desktop/app.py` | 52% | pywebview 原生窗口，需 GUI 环境 |
-| `plugins/image_extra.py` | 54% | 大量失败分支依赖可选包（pillow-heif/rawpy 等）未安装 |
+| `plugins/office_soffice.py` | 52% | 依赖外部 LibreOffice（soffice），当前环境未装 |
+| `plugins/image_extra.py` | 68% | 大量失败分支依赖可选包（pillow-heif/rawpy 等）未安装 |
+| `plugins/archive.py` | 59% | 各归档格式的失败分支与外部后端 |
+| `plugins/vector.py` | 75% | 依赖 resvg / vtracer 与排版边界 |
+| `ir/data.py` / `ir/document.py` | 72% / 71% | 类型推断与版面分析的边角分支 |
+| `engines/codecs.py` | 79% | 容器/编码兼容表的兜底分支 |
 
 > 这些低覆盖绝大多数是**外部依赖/界面**触发的分支，属于"装了才有、不装就没有"的场景。
 > 但 `webui/server.py` 在 0% 时藏过一个真实的 P1（不校验 Host，见 SECURITY_REVIEW），
@@ -69,7 +75,8 @@
 | rawpy | 相机 RAW 读取不可用 |
 | vtracer | 位图 → SVG 描摹不可用（PNG/JPG→SVG 不再出现在目标列表） |
 
-外部引擎状态：**FFmpeg 9.0.1 ✓、UnRAR ✓、soffice ✗**。
+外部引擎状态（本机实测）：**FFmpeg 8.1.2 ✓、UnRAR ✓、soffice ✗**；以 `convcore doctor`
+的输出为准，版本号钉在 `convcore/engines/manifest.py`。
 未装依赖的插件不会破坏引擎启动——`available()` 返回原因并跳过，`doctor` 会列出。
 
 ## 四、代码质量问题（非阻塞）

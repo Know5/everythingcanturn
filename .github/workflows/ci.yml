@@ -25,6 +25,22 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up Node
+        # 桌面端前端（ui/）用 React + AntD，构建产物进包。
+        # 放在 pytest 之前跑，是为了让 TypeScript 错误在 PR 阶段就暴露，
+        # 而不是等到 release 流水线打包时才发现。
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build desktop UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
       - name: Install dependencies
         # 从干净环境安装：验证 pyproject extras 的声明完整性
         # （评审 P0-1 的回归防线——漏声明会在这一步直接失败）
@@ -52,3 +68,10 @@ jobs:
           python -m convcore convert t.webp -t png -o t2.png --overwrite
           if (-not (Test-Path t.webp) -or -not (Test-Path t2.png)) { throw "smoke failed" }
           echo "smoke OK"
+
+      - name: Desktop UI smoke
+        # 桌面端加载哪个界面由 _ui_source 决定；构建产物存在时必须指向它，
+        # 缺失时必须报错（不能静默加载别的东西，否则新前端坏了也发现不了）。
+        shell: pwsh
+        run: |
+          python -c "from convcore.desktop.app import _ui_source; s=_ui_source(); assert 'url' in s, s; print(s['url'])"

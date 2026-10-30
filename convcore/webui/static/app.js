@@ -55,8 +55,8 @@ async function loadEnv() {
   try {
     const env = await api("/api/env");
     state.env = env;
-    const doms = Object.entries(env.domains)
-      .map(([d, n]) => `${({raster:"图片",media:"音视频",document:"文档",table:"数据",vector:"矢量",archive:"归档"})[d] || d} ${n}`)
+    const doms = env.domains
+      .map((d) => `${d.label || d.key} ${d.count}`)
       .join(" · ");
     $("envLine").textContent = `可读 ${env.readable} 格式 · 可写 ${env.writable} 格式 — ${doms}`;
 
@@ -86,8 +86,8 @@ function renderEnv() {
 
   rows.push(`<div class="envRow" style="border-bottom:0;padding-top:14px"><span class="envKey"><b>外部引擎</b></span><span class="envNote">不装只是少对应领域的能力</span></div>`);
   for (const e of env.engines) {
-    const cls = e.available ? "on" : (e.tier === "needed" ? "need" : "off");
-    const right = e.available
+    const cls = e.ok ? "on" : (e.tier === "needed" ? "need" : "off");
+    const right = e.ok
       ? "已就绪"
       : `未装${e.size ? `（${e.size}）` : ""} — 装了才能：${escapeHtml(e.enables)}`;
     rows.push(`<div class="envRow"><span class="envKey"><span class="dot ${cls}"></span> ${e.key}</span><span class="envNote">${right}</span></div>`);
@@ -111,8 +111,8 @@ async function addPaths(paths) {
     try {
       const info = await api("/api/inspect", { path: p });
       if (!info.targets.length) { failed++; continue; }
-      // 默认选第一个（最保真的），用户可改
-      info.chosen = info.targets[0].mime;
+      // 后端给的偏好默认值；没有偏好时退回第一个目标
+      info.chosen = info.default || info.targets[0].mime;
       info.jobId = null;
       state.files.push(info);
       added++;

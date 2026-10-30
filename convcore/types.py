@@ -14,8 +14,6 @@ __all__ = [
     "LossTier",
     "Resource",
     "Capability",
-    "Codec",
-    "DirectConverter",
     "ConvertRequest",
     "ConvertResult",
     "ConversionError",

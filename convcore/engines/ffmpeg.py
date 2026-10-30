@@ -10,15 +10,15 @@ stderr 的人类可读输出——那个格式在版本间会变，而且和日�
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from ..ir.media import MediaPlan, Stream
-from ..types import ConversionError, MediaType, Resource
+from ..types import ConversionError, Resource
 from . import base
-from .codecs import QUALITY_STYLE, RemuxDecision, StreamAction
-from .probe import companion, require
+from .codecs import QUALITY_STYLE, RemuxDecision
+from .probe import companion
 
 
 def ffprobe_json(path: Path) -> dict[str, Any]:

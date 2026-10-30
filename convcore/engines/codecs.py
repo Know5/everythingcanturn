@@ -212,10 +212,6 @@ class RemuxDecision:
         return "，".join(parts) if parts else "改封装"
 
 
-def supported(container: MediaType, kind: str) -> frozenset[str]:
-    return CONTAINER_CODECS.get(container, {}).get(kind, frozenset())
-
-
 def decide(
     plan,
     target: MediaType,

@@ -18,7 +18,8 @@ from typing import Any
 
 import pytest
 
-from convcore.desktop.app import PREFERRED, Api
+from convcore.desktop.app import Api, _ui_source
+from convcore.uiservice import PREFERRED
 
 
 class StubWindow:
@@ -92,14 +93,18 @@ def test_public_methods_are_the_intended_surface(api: Api) -> None:
     surface = {n for n in dir(api) if not n.startswith("_") and callable(getattr(api, n))}
     expected = {
         "env",
+        "formats_data",
         "pick_files",
         "pick_out_dir",
         "clear_out_dir",
         "inspect",
         "convert",
         "cancel",
+        "cancel_all",
         "notify_drop",
         "reveal",
+        "open_file",
+        "open_url",
         "install_engine",
     }
     missing = expected - surface
@@ -128,7 +133,7 @@ def test_env_reports_capabilities(api: Api) -> None:
 
 
 def test_out_dir_round_trip(api: Api, tmp_path) -> None:
-    api._out_dir = tmp_path
+    api._service.out_dir = tmp_path
     assert api.env()["outDir"] == str(tmp_path)
     api.clear_out_dir()
     assert api.env()["outDir"] is None
@@ -150,8 +155,8 @@ def test_install_engine_takes_effect_without_restart(api: Api, monkeypatch) -> N
     engine = Toggle("fake-engine", "image/x-late", ready=False)
     reg = Registry()
     reg.add(engine)
-    api._conv = Converter(reg)
-    assert "image/x-late" not in api._conv.registry.writable()
+    api._service.converter = Converter(reg)
+    assert "image/x-late" not in api._service.converter.registry.writable()
     assert "fake-engine" in api.env()["unavailable"]
 
     def fake_install(key, progress=None):
@@ -161,9 +166,9 @@ def test_install_engine_takes_effect_without_restart(api: Api, monkeypatch) -> N
     monkeypatch.setattr(install_mod, "install", fake_install)
     assert api.install_engine("fake")["ok"]
 
-    assert "image/x-late" in api._conv.registry.writable()
+    assert "image/x-late" in api._service.converter.registry.writable()
     # 格式图也得跟着重建：新格式有了出边，inspect 才能列出它能转去哪
-    assert api._conv.graph.edges_from(("fmt", "image/x-late")), "格式图没有随注册表重建"
+    assert api._service.converter.graph.edges_from(("fmt", "image/x-late")), "格式图没有随注册表重建"
     env = api.env()
     assert "fake-engine" in env["plugins"]
     assert "fake-engine" not in env["unavailable"]
@@ -251,7 +256,7 @@ def test_preference_table_targets_are_known(api: Api) -> None:
 
 
 def test_convert_png_to_jpeg(api: Api, samples, tmp_path) -> None:
-    api._out_dir = tmp_path
+    api._service.out_dir = tmp_path
     ids = api.convert([{"path": str(samples["png"]), "target": "image/jpeg"}], None, {})
     assert len(ids) == 1
 
@@ -264,7 +269,7 @@ def test_convert_png_to_jpeg(api: Api, samples, tmp_path) -> None:
 
 
 def test_convert_pushes_progress_then_terminal_state(api: Api, samples, tmp_path) -> None:
-    api._out_dir = tmp_path
+    api._service.out_dir = tmp_path
     ids = api.convert([{"path": str(samples["png"]), "target": "image/webp"}], None, {})
     _wait(api, ids[0])
 
@@ -279,7 +284,7 @@ def test_convert_pushes_progress_then_terminal_state(api: Api, samples, tmp_path
 
 def test_convert_reports_unknown_target_as_failure(api: Api, samples, tmp_path) -> None:
     """坏目标应变成任务失败，而不是抛穿到 pywebview。"""
-    api._out_dir = tmp_path
+    api._service.out_dir = tmp_path
     ids = api.convert([{"path": str(samples["png"]), "target": "image/nonexistent"}], None, {})
     final = _wait(api, ids[0])
     assert final["state"] == "failed"
@@ -287,7 +292,7 @@ def test_convert_reports_unknown_target_as_failure(api: Api, samples, tmp_path) 
 
 
 def test_convert_batch_gets_distinct_ids(api: Api, samples, tmp_path) -> None:
-    api._out_dir = tmp_path
+    api._service.out_dir = tmp_path
     items = [
         {"path": str(samples["png"]), "target": "image/jpeg"},
         {"path": str(samples["jpg"]), "target": "image/webp"},
@@ -301,14 +306,14 @@ def test_convert_batch_gets_distinct_ids(api: Api, samples, tmp_path) -> None:
 def test_emit_survives_closed_window(api: Api, samples, tmp_path) -> None:
     """窗口关掉后转换仍在跑，推送必须静默失败而不是炸线程。"""
     api._window = None
-    api._out_dir = tmp_path
+    api._service.out_dir = tmp_path
     ids = api.convert([{"path": str(samples["png"]), "target": "image/jpeg"}], None, {})
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
-        if api._jobs[ids[0]]["state"] in ("done", "failed"):
+        if api._service.jobs[ids[0]].state in ("done", "failed"):
             break
         time.sleep(0.05)
-    assert api._jobs[ids[0]]["state"] == "done"
+    assert api._service.jobs[ids[0]].state == "done"
 
 
 # ── 其它 ──
@@ -321,10 +326,10 @@ def test_notify_drop_forwards_real_paths(api: Api) -> None:
     assert _window(api).drops == [paths]
 
 
-def test_emit_escapes_filenames(api: Api, tmp_path) -> None:
+def test_emit_escapes_filenames(api: Api) -> None:
     """文件名里的引号和反斜杠不能破坏 JS 语法，所以走 JSON 序列化。"""
-    api._jobs["j1"] = {"id": "j1", "name": "it's \"weird\"\\path.png", "state": "running"}
-    api._emit(api._jobs["j1"])
+    job = {"id": "j1", "name": "it's \"weird\"\\path.png", "state": "running"}
+    api._emit(job)
     code = _window(api).raw[-1]
     payload = json.loads(re.search(r"window\.onJob\((.*)\)$", code, re.S).group(1))
     assert payload["name"] == "it's \"weird\"\\path.png"
@@ -336,3 +341,32 @@ def test_cancel_unknown_job_is_false(api: Api) -> None:
 
 def test_reveal_missing_path_is_false(api: Api, tmp_path) -> None:
     assert api.reveal(str(tmp_path / "gone.png")) is False
+
+
+# ── 桌面端加载源 ──
+
+
+def test_ui_source_requires_build(monkeypatch, tmp_path) -> None:
+    """没有构建产物必须报可操作的错误，不能静默加载别的界面。"""
+    monkeypatch.setattr("convcore.desktop.app.STATIC", tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        _ui_source()
+    assert "npm ci && npm run build" in str(exc.value)
+
+
+def test_ui_source_points_at_built_index(monkeypatch, tmp_path) -> None:
+    gui = tmp_path / "gui"
+    gui.mkdir()
+    (gui / "index.html").write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr("convcore.desktop.app.STATIC", tmp_path)
+
+    source = _ui_source()
+    assert source["url"].startswith("file:")
+    assert source["url"].endswith("/gui/index.html")
+
+
+def test_ui_source_dev_url_wins(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("convcore.desktop.app.STATIC", tmp_path)
+    assert _ui_source(dev_url="http://localhost:5173") == {
+        "url": "http://localhost:5173"
+    }

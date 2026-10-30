@@ -24,7 +24,7 @@ from typing import Any
 
 from . import policy as policy_mod
 from .formats import normalize, primary_extension
-from .graph import EdgeKind, FormatGraph, LossTier, Path as ConvPath
+from .graph import EdgeKind, FormatGraph, Path as ConvPath
 from .registry import Registry, default_registry
 from .sniff import sniff_resource
 from .types import (
@@ -356,11 +356,6 @@ class Converter:
                     current = edge.plugin.write(ir, edge.dst[1], plugin_opts)
                     ir = None
 
-                elif edge.kind is EdgeKind.DIRECT:
-                    for r in current:
-                        r.materialize(tmp)
-                    current = edge.plugin.convert(current, edge.dst[1], plugin_opts)
-
                 else:  # BRIDGE
                     # 桥函数可能落盘（document_build 排 PDF、vector 渲染 SVG），
                     # 必须拿到带 _tmp 的 plugin_opts；传裸 opts 会丢工作目录——
@@ -379,7 +374,7 @@ class Converter:
             progress(1.0, "完成")
 
         if not isinstance(current, list):
-            raise ConversionError("内部错误：路径未以 WRITE 或 DIRECT 边结束")
+            raise ConversionError("内部错误：路径未以 WRITE 边结束")
         return current
 
     @staticmethod

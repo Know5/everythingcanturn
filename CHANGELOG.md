@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **桌面端界面重写**：React 18 + TypeScript + Ant Design 5 + Vite，源码在 `ui/`，
+  产物落到 `convcore/webui/static/gui/`，由 `convcore.spec` 原有的 `datas` 自动收集。
+  旧内联界面（`desktop.html/css/js`）与 `CONVCORE_LEGACY_UI` 回退开关已删除；
+  构建产物缺失时直接报错并给出 `npm ci && npm run build` 指引。设计 token 取 Radix Colors 暗色阶梯，
+  列表行自绘而非直接拼 AntD 默认组件；行为对齐旧版（拖放、按域分组的目标选择、
+  损失档位、逐文件进度、批量统一目标、预设、输出目录、引擎安装、格式矩阵）。
+  详见 `docs/superpowers/specs/2026-10-29-desktop-ui-react-antd.md`
+- `convcore gui` 新增 `--ui-dev URL`，可指向 Vite 开发服务器做前端热更新
+- Windows 标题栏改为跟随暗色（`DwmSetWindowAttribute`），失败时静默退化为系统默认
+- 桌面端与浏览器端的状态机合并到 `convcore/uiservice.py`：`inspect`、逐文件任务、
+  进度/取消、环境探测只维护一份；两个前端只保留传输适配（js_api / HTTP）
+- 图搜索删掉未使用的 DIRECT 直连边；所有插件统一走 `Codec` 枢纽，
+  remux 仍由媒体域 `MediaPlan` 在写出时判定
+
+### Fixed
+- 拖入文件被 WebView2 当成导航目标打开：全局 `dragover`/`drop` 的 `preventDefault`
+  现在由 `main.tsx` 强制的 `bridge` 模块注册（应用级不变量，不再依赖某个组件恰好引用）
+- 桌面窗口加载 file:// 界面时不能带查询串：.NET `Uri` 会把 `?` 转义成 `%3F`，
+  导航到不存在的文件名（P0 实测）；防旧资源改由内容 hash 文件名承担
+- README 的能力数字与代码对齐（54 种双向、9 种只读；SVG 已可写），PDF 表格提取说明
+  改为跨页收集所有表格；桌面端 API 契约测试补全 `cancel_all` / `open_file` / `open_url` /
+  `formats_data` 四个方法
+
+### Removed
+- 删除 P0 验收后遗留的 `ui/spike/spike.py`，以及 `test_samples/` 中未被任何测试引用的
+  5 个样本（保留 LibreOffice 用例使用的 `b.docx`）
+- 删除 `engines/codecs.py` 中没有调用方的 `supported()`
+- 删除 `registry.DirectConverter`、`EdgeKind.DIRECT` 及 `Codec` 之外的直连插件分支
+  （生产插件 0 个实现，整条分支无调用方）
+- `convcore/ir/__init__.py` 不再重复导出子模块类型，调用方直接导入具体 IR 子模块
+
 ### Added
 - Raster → vector tracing bridge (`vtracer`, included in the `vector` and `all` extras):
   icons, logos and line art to SVG at the `INFERRED` tier. Photos are rejected by the entry

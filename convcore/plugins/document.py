@@ -19,7 +19,7 @@ from ..ir.document import DocumentRef, PageInfo
 from ..ir.raster import Frame, Raster
 from ..policy import Policy, Strategy
 from ..registry import register
-from ..types import Capability, ConversionError, LossTier, MediaType, Resource, caps
+from ..types import Capability, ConversionError, LossTier, Resource
 from ._quiet import quiet_stderr
 from ._scratch import workdir
 

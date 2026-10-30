@@ -14,7 +14,7 @@ from PIL import Image
 from ..ir.raster import Raster
 from ..policy import Policy, Strategy
 from ..registry import register
-from ..types import Capability, LossTier, MediaType, Resource, caps
+from ..types import LossTier, MediaType, Resource, caps
 from ._raster_util import (
     apply_resize,
     coerce_mode,

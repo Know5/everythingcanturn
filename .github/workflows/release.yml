@@ -21,6 +21,20 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build desktop UI
+        # 产物进 convcore/webui/static/gui，由 convcore.spec 的 datas 自动收集
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
       - name: Install dependencies
         # 与 ci.yml 相同的从零安装；pyinstaller 钉在 requirements.lock.txt 的版本
         run: |
@@ -38,6 +52,10 @@ jobs:
           python -c "from PIL import Image; Image.new('RGB', (64, 64), 'red').save('t.png')"
           ./dist/convcore/convcore-cli.exe convert t.png -t webp -o t.webp --overwrite
           if (-not (Test-Path t.webp)) { throw "packaged build cannot convert" }
+          # 桌面端前端必须真的在包里：否则启动时直接报缺少构建产物
+          if (-not (Test-Path "dist/convcore/_internal/convcore/webui/static/gui/index.html")) {
+            throw "packaged build is missing the desktop UI bundle"
+          }
 
       - name: Archive
         shell: pwsh

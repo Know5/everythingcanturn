@@ -26,3 +26,10 @@ final_*.png
 # OS
 Thumbs.db
 Desktop.ini
+
+# 前端
+ui/node_modules/
+ui/.vite/
+
+# 桌面端前端构建产物（ui/ 里 npm run build 生成）
+convcore/webui/static/gui/

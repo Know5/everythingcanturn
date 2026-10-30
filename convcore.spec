@@ -17,7 +17,9 @@
 
 from PyInstaller.utils.hooks import collect_submodules
 
-# 动态导入的插件模块。与 plugins/__init__.py 的 _MODULES 保持一致。
+# 插件模块。`plugins/__init__.py` 的 _MODULES 有 14 个，走 importlib 动态导入，
+# PyInstaller 静态分析看不见，必须逐个列出；document_build / markup_read /
+# markup_write 由 pipeline 在函数内导入，额外列出以不依赖分析器的版本差异。
 PLUGINS = [
     f"convcore.plugins.{m}"
     for m in (
