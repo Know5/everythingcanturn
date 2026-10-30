@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **多图合成动图**：`convcore convert a.png b.jpg c.png -t gif --merge-images`，
   或 `pipeline.merge_files()`；支持 GIF / WebP / TIFF，默认每帧 100ms
   （`frame_duration` 可调）。GUI 的“图片序列”面板也可按队列顺序合成
+- **合并入口可见性**：队列顶部在满足条件时直接出现「合成动图」/「合并音视频」
+  按钮，不再只藏在右侧面板；最近完成列表限制最大高度并可滚动，避免挤掉空状态
 - **桌面端音视频合并**：队列中有两个以上音视频时，右侧面板可开启“按队列顺序拼接”，
   选择输出格式后一次生成；复用 `concat_media` 的 COPY/统一转码策略
 - **DOCX 表格单元格图片**：解析时进入 DocTree；Markdown/HTML 表格和 DOCX 表格

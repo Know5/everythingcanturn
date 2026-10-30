@@ -8,9 +8,11 @@ import { useEffect } from "react";
 import { App as AntApp, Alert, Popconfirm, Spin, Typography } from "antd";
 import {
   ClearOutlined,
+  InboxOutlined,
+  PictureOutlined,
+  PlaySquareOutlined,
   PlusOutlined,
   SwapOutlined,
-  InboxOutlined,
 } from "@ant-design/icons";
 import { bindDrop, bindJob, api } from "./bridge";
 import { useStore } from "./store";
@@ -44,6 +46,8 @@ export default function App() {
   const runImageMerge = useStore((s) => s.runImageMerge);
   const concat = useStore((s) => s.concat);
   const imageMerge = useStore((s) => s.imageMerge);
+  const toggleConcat = useStore((s) => s.toggleConcat);
+  const toggleImageMerge = useStore((s) => s.toggleImageMerge);
   const running = useStore((s) => s.running);
 
   useEffect(() => {
@@ -178,6 +182,24 @@ export default function App() {
                 <button className="head-action" onClick={() => openPicker("*")}>
                   <SwapOutlined /> 统一目标
                 </button>
+                {imageCount >= 2 && (
+                  <button
+                    className={`head-action${imageMerge.enabled ? " primary" : ""}`}
+                    onClick={() => toggleImageMerge(true)}
+                    title="多张图片按队列顺序合成 GIF/WebP/TIFF"
+                  >
+                    <PictureOutlined /> 合成动图
+                  </button>
+                )}
+                {mediaCount >= 2 && (
+                  <button
+                    className={`head-action${concat.enabled ? " primary" : ""}`}
+                    onClick={() => toggleConcat(true)}
+                    title="多个音视频按队列顺序拼接"
+                  >
+                    <PlaySquareOutlined /> 合并音视频
+                  </button>
+                )}
                 <Popconfirm
                   title="清空列表？"
                   description="进行中的任务会先被取消"

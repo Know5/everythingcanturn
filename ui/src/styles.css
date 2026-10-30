@@ -269,8 +269,9 @@ body {
 
 .workspace.empty {
   padding: 0 24px 24px;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
 }
 
 .queue-pane {
@@ -1272,17 +1273,35 @@ button:focus-visible,
 
 .empty-stack {
   width: min(640px, 100%);
+  margin: auto 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
+.empty-stack .empty-drop {
+  flex: 0 0 auto;
+}
+
 .recent-panel {
+  flex: 0 0 auto;
+  max-height: 280px;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: rgba(17, 20, 25, 0.7);
   padding: 12px 14px 6px;
   box-shadow: var(--shadow-soft, 0 8px 24px rgba(0, 0, 0, 0.28));
+}
+
+.recent-head {
+  position: sticky;
+  top: -12px;
+  z-index: 1;
+  margin: -12px -14px 0;
+  padding: 12px 14px 7px;
+  background: rgba(17, 20, 25, 0.94);
+  backdrop-filter: blur(8px);
 }
 
 .recent-head {
