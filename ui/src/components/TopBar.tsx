@@ -1,12 +1,15 @@
 import { Tooltip } from "antd";
 import {
+  BorderOutlined,
+  CloseOutlined,
+  MinusOutlined,
   QuestionCircleOutlined,
   SafetyCertificateOutlined,
   ToolFilled,
 } from "@ant-design/icons";
 import iconUrl from "../assets/icon.png";
+import { api } from "../bridge";
 import { useStore } from "../store";
-import { radix } from "../theme";
 
 export function TopBar() {
   const env = useStore((s) => s.env);
@@ -17,9 +20,16 @@ export function TopBar() {
   const missing = engines.filter((e) => !e.ok && e.tier === "needed");
   const ready = engines.filter((e) => e.ok).length;
 
+  const toggleMaximize = () => {
+    void api().window_toggle_maximize();
+  };
+
   return (
     <header className="topbar">
-      <div className="brand">
+      <div
+        className="brand pywebview-drag-region"
+        onDoubleClick={toggleMaximize}
+      >
         <div className="brand-mark">
           <img src={iconUrl} alt="" />
         </div>
@@ -29,12 +39,15 @@ export function TopBar() {
         </div>
       </div>
 
-      <div className="topbar-spacer" />
+      <div
+        className="titlebar-drag pywebview-drag-region"
+        onDoubleClick={toggleMaximize}
+      />
 
       <div className="topbar-actions">
         <span
-          className="status-pill"
-          style={{ color: radix.textFaint, cursor: "default" }}
+          className="status-pill local-pill"
+          style={{ cursor: "default" }}
           title={`可读 ${env?.readable ?? 0} 种格式 · 可写 ${env?.writable ?? 0} 种`}
         >
           <SafetyCertificateOutlined style={{ fontSize: 12 }} />
@@ -60,6 +73,32 @@ export function TopBar() {
             <QuestionCircleOutlined style={{ fontSize: 14 }} />
           </button>
         </Tooltip>
+
+        <div className="window-divider" />
+
+        <div className="window-actions">
+          <button
+            className="window-btn"
+            title="最小化"
+            onClick={() => void api().window_minimize()}
+          >
+            <MinusOutlined />
+          </button>
+          <button
+            className="window-btn"
+            title="最大化 / 还原"
+            onClick={toggleMaximize}
+          >
+            <BorderOutlined />
+          </button>
+          <button
+            className="window-btn close"
+            title="关闭"
+            onClick={() => void api().window_close()}
+          >
+            <CloseOutlined />
+          </button>
+        </div>
       </div>
     </header>
   );

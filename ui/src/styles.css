@@ -93,37 +93,38 @@ body {
 /* ── 顶栏 ── */
 
 .topbar {
-  height: 58px;
+  height: 52px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 22px;
+  gap: 8px;
+  padding: 0 10px 0 16px;
   border-bottom: 1px solid var(--border);
-  background: rgba(9, 11, 14, 0.72);
-  backdrop-filter: blur(14px);
+  background: rgba(9, 11, 14, 0.78);
+  backdrop-filter: blur(16px);
   position: relative;
   z-index: 2;
-  -webkit-app-region: drag;
+  user-select: none;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  user-select: none;
+  gap: 9px;
+  flex: 0 0 auto;
+  min-height: 100%;
 }
 
 .brand-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   overflow: hidden;
   flex: 0 0 auto;
   background: linear-gradient(145deg, #5f9bff 0%, #4c8dff 42%, #6c5cff 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 6px 18px rgba(76, 141, 255, 0.32);
+    0 5px 16px rgba(76, 141, 255, 0.28);
 }
 
 .brand-mark img {
@@ -140,26 +141,65 @@ body {
 }
 
 .brand-name {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 650;
   letter-spacing: 0.02em;
 }
 
 .brand-sub {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-faint);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
 }
 
-.topbar-spacer {
+.titlebar-drag {
   flex: 1;
+  align-self: stretch;
+  min-width: 24px;
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
   gap: 6px;
-  -webkit-app-region: no-drag;
+  flex: 0 0 auto;
+}
+
+.window-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 3px;
+}
+
+.window-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.window-btn {
+  width: 34px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.window-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.window-btn.close:hover {
+  background: rgba(255, 107, 107, 0.16);
+  color: var(--danger);
 }
 
 .status-pill {
@@ -816,7 +856,7 @@ body {
 
 .drop-overlay {
   position: absolute;
-  inset: 58px 0 0;
+  inset: 52px 0 0;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -1365,5 +1405,20 @@ button:focus-visible,
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (max-width: 960px) {
+  .brand-sub {
+    display: none;
+  }
+  .status-pill {
+    padding: 0 9px;
+  }
+}
+
+@media (max-width: 840px) {
+  .local-pill {
+    display: none;
   }
 }

@@ -33,6 +33,21 @@ class StubWindow:
         self.jobs: list[dict[str, Any]] = []
         self.drops: list[list[str]] = []
         self.raw: list[str] = []
+        self.minimized = False
+        self.maximized = False
+        self.destroyed = False
+
+    def minimize(self) -> None:
+        self.minimized = True
+
+    def maximize(self) -> None:
+        self.maximized = True
+
+    def restore(self) -> None:
+        self.maximized = False
+
+    def destroy(self) -> None:
+        self.destroyed = True
 
     def evaluate_js(self, code: str) -> None:
         self.raw.append(code)
@@ -106,6 +121,9 @@ def test_public_methods_are_the_intended_surface(api: Api) -> None:
         "open_file",
         "open_url",
         "install_engine",
+        "window_minimize",
+        "window_toggle_maximize",
+        "window_close",
     }
     missing = expected - surface
     assert not missing, f"缺少前端依赖的方法：{missing}"
@@ -370,3 +388,16 @@ def test_ui_source_dev_url_wins(monkeypatch, tmp_path) -> None:
     assert _ui_source(dev_url="http://localhost:5173") == {
         "url": "http://localhost:5173"
     }
+
+
+# ── 无边框窗口控制 ──
+
+
+def test_window_controls_delegate(api: Api) -> None:
+    win = _window(api)
+    api.window_minimize()
+    assert win.minimized
+    api.window_toggle_maximize()
+    assert win.maximized
+    api.window_close()
+    assert win.destroyed

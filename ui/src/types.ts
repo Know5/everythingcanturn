@@ -97,4 +97,7 @@ export interface PywebviewApi {
   open_file(path: string): Promise<boolean>;
   open_url(url: string): Promise<boolean>;
   install_engine(key: string): Promise<{ ok: boolean; version?: string; error?: string }>;
+  window_minimize(): Promise<void>;
+  window_toggle_maximize(): Promise<boolean>;
+  window_close(): Promise<void>;
 }

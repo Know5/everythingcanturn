@@ -242,7 +242,7 @@ npm run build   # 输出到 ../convcore/webui/static/gui
 16. 预设列表来自 env。
 17. ESC / 点遮罩关闭弹层。
 18. 空态 ↔ 工作区切换。
-19. 窗口 1000×760、最小 720×560、深色背景。
+19. 窗口 1040×740、最小 760×560、深色背景。
 20. 初始化失败有可见错误提示；`pywebviewready` 与"已就绪"两条启动路径不重复 boot。
 
 ## 12. 风险与对策
@@ -309,8 +309,9 @@ P5 删除旧前端后，实际窗口暴露了一个更基础的问题：界面�
   可打开、定位或重新加入队列。
 - 快捷键：`Ctrl+O` 添加文件、`Ctrl+Enter` 开始转换；按钮 tooltip 提示。
 - 动效：卡片/空态/侧栏在 `prefers-reduced-motion: no-preference` 下淡入上移。
-- 标题栏仍是原生深色窗口边框：无边框方案会让 WinForms 窗口失去边缘缩放，
-  暂不为视觉效果牺牲桌面窗口的基本操作。
-
+- 标题栏：改为无边框窗口，原生标题栏移除；应用内顶栏承担品牌、状态与窗口控制。
+  加载后用 Win32 补回 `WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX` 并
+  `SWP_FRAMECHANGED`，恢复边缘缩放（实测边缘 NCHITTEST 返回 HTLEFT/HTRIGHT/HTBOTTOM）；
+  拖动区用 pywebview 的 `.pywebview-drag-region`，不启用整窗 easy_drag。
 - 图标：用户提供的 512px 彩色文件转换图标，圆角裁透明后生成多尺寸
-  `convcore/assets/convcore.ico`，用于 exe、窗口和 favicon；顶部品牌同步使用同一图。
+  `convcore/assets/convcore.ico`，用于 exe、窗口和 favicon；顶栏品牌使用同一图标。

@@ -151,6 +151,34 @@ class Api:
         webbrowser.open(url)
         return True
 
+    # ── 无边框窗口控制 ──
+
+    def window_minimize(self) -> None:
+        if self._window is not None:
+            self._window.minimize()
+
+    def window_toggle_maximize(self) -> bool:
+        """最大化/还原。用 Win32 IsZoomed 判断真实状态，避免和标题栏拖拽脱节。"""
+        if self._window is None:
+            return False
+        try:
+            import ctypes
+            import sys
+
+            if sys.platform == "win32":
+                hwnd = int(self._window.native.Handle.ToInt64())
+                if ctypes.windll.user32.IsZoomed(hwnd):
+                    self._window.restore()
+                    return False
+        except Exception:
+            pass
+        self._window.maximize()
+        return True
+
+    def window_close(self) -> None:
+        if self._window is not None:
+            self._window.destroy()
+
     def install_engine(self, key: str) -> dict[str, Any]:
         """下载安装引擎。同步执行，前端要显示等待状态。"""
         from ..engines.install import InstallError, install
@@ -215,6 +243,8 @@ def run(*, debug: bool = False, dev_url: str | None = None) -> None:
         width=1040,
         height=740,
         min_size=(760, 560),
+        frameless=True,
+        easy_drag=False,
         # 不用系统默认背景色：加载瞬间的白闪在深色界面上很刺眼
         background_color="#111113",
     )
@@ -244,12 +274,12 @@ def run(*, debug: bool = False, dev_url: str | None = None) -> None:
 
     window.events.loaded += wire_dom
 
-    def dark_titlebar() -> None:
-        """把 Win32 标题栏切成暗色。
+    def enable_window_chrome() -> None:
+        """给无边框窗口补上原生 resize 命中区与暗色边框。
 
-        原生标题栏是系统默认白色，和全暗界面割裂得很难看。Windows 10 1809+
-        的 DwmSetWindowAttribute(20) 能让它跟随暗色（Windows 11 上是 20，
-        早期 build 用 19）。不支持就静静跳过——外观退化，不影响功能。
+        FormBorderStyle.None 的窗口没有 WS_THICKFRAME，鼠标拖边缘不能缩放。
+        窗口创建后把 resize 相关的 style 位加回去，再用 SWP_FRAMECHANGED
+        让系统重新做命中测试——既保留无边框外观，又恢复边缘缩放。
         """
         import ctypes
         import sys
@@ -258,6 +288,18 @@ def run(*, debug: bool = False, dev_url: str | None = None) -> None:
             return
         try:
             hwnd = int(window.native.Handle.ToInt64())  # type: ignore[attr-defined]
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(hwnd, -16)
+            user32.SetWindowLongW(
+                hwnd,
+                -16,
+                style | 0x00040000 | 0x00010000 | 0x00020000,  # THICKFRAME/MAX/MIN
+            )
+            user32.SetWindowPos(
+                hwnd, 0, 0, 0, 0, 0,
+                0x0002 | 0x0001 | 0x0004 | 0x0020,  # NOMOVE|NOSIZE|NOZORDER|FRAMECHANGED
+            )
+            # 暗色 DWM 边框（Windows 10 1809+），失败静默
             on = ctypes.c_int(1)
             for attr in (20, 19):
                 if ctypes.windll.dwmapi.DwmSetWindowAttribute(  # type: ignore[attr-defined]
@@ -267,7 +309,7 @@ def run(*, debug: bool = False, dev_url: str | None = None) -> None:
         except Exception:
             pass
 
-    window.events.loaded += dark_titlebar
+    window.events.loaded += enable_window_chrome
 
     webview.start(
         debug=debug,
