@@ -29,7 +29,8 @@ roles are separated here so the responsibility is explicit:
   configuration, before it reaches `main`.
 - **Approver**: Know5 — approves each release signing request in SignPath.
 
-Multi-factor authentication is enabled on the GitHub and SignPath accounts.
+Multi-factor authentication is required on both the GitHub and SignPath accounts
+before the application is submitted.
 
 ## Build provenance
 
