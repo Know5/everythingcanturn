@@ -121,7 +121,7 @@ class DocxCodec:
                 raw.extend(self._para_images(para))
             elif tag == "tbl":
                 tbl = docx.table.Table(child, d)
-                raw.append(self._table(tbl))
+                raw.append(self._table(tbl, names))
 
         blocks = _coalesce(header_blocks + raw + footer_blocks)
         extracted = sum(1 for b in blocks if b.kind == IMAGE)
@@ -129,8 +129,7 @@ class DocxCodec:
             pol.note(
                 "图片",
                 Strategy.DROP,
-                f"{len(d.inline_shapes) - extracted} 张内嵌图片未提取"
-                "（表格中的图片暂不处理）",
+                f"{len(d.inline_shapes) - extracted} 张内嵌图片未提取",
             )
         if header_blocks or footer_blocks:
             pol.note(
@@ -278,18 +277,19 @@ class DocxCodec:
         else:
             out.append(s)
 
-    def _table(self, tbl) -> Block:
+    def _table(self, tbl, names: dict[str, str]) -> Block:
         rows: list[list[Cell]] = []
         for ri, row in enumerate(tbl.rows):
             cells: list[Cell] = []
             for c in row.cells:
-                text = c.text.strip()
-                cells.append(
-                    Cell(
-                        blocks=[Block(PARAGRAPH, spans=[Span(text)])] if text else [],
-                        header=ri == 0,
+                cell_blocks: list[Block] = []
+                for para in c.paragraphs:
+                    if (b := self._para(para, names)) is not None:
+                        cell_blocks.append(b)
+                    cell_blocks.extend(
+                        self._para_images(para, alt="DOCX 表格图片")
                     )
-                )
+                cells.append(Cell(blocks=cell_blocks, header=ri == 0))
             rows.append(cells)
         return Block(TABLE, rows=rows)
 
@@ -391,28 +391,27 @@ class DocxCodec:
                 p = d.add_paragraph()
                 self._runs(p, b.spans or [Span(b.text)])
 
-    def _add_image(self, document, src: str) -> bool:
-        """把 data URI / 本地图片嵌进 DOCX；外链与不支持的格式返回 False。"""
+    def _image_payload(self, src: str):
+        """返回 (stream, width)，供正文和表格单元格共用。"""
         import base64
         import io
         from pathlib import Path
 
         from docx.shared import Inches
 
-        stream = None
         try:
             if src.startswith("data:"):
                 header, _, payload = src.partition(",")
                 if "svg" in header.lower():
-                    return False
+                    return None
                 stream = io.BytesIO(base64.b64decode(payload))
             else:
                 path = Path(src)
                 if not path.is_file():
-                    return False
+                    return None
                 stream = io.BytesIO(path.read_bytes())
         except Exception:
-            return False
+            return None
 
         try:
             from PIL import Image
@@ -425,7 +424,18 @@ class DocxCodec:
             width_in = min(6.0, max(1.0, width / dpi))
             if height / dpi > 8.0:
                 width_in = min(width_in, 8.0 * width / height)
-            document.add_picture(stream, width=Inches(width_in))
+            return stream, Inches(width_in)
+        except Exception:
+            return None
+
+    def _add_image(self, document, src: str) -> bool:
+        """把 data URI / 本地图片嵌进 DOCX；外链与不支持的格式返回 False。"""
+        payload = self._image_payload(src)
+        if payload is None:
+            return False
+        stream, width = payload
+        try:
+            document.add_picture(stream, width=width)
             return True
         except Exception:
             return False
@@ -458,6 +468,17 @@ class DocxCodec:
             cells = table.add_row().cells
             for i, c in enumerate(row[:width]):
                 cells[i].text = c.text
+                for block in c.blocks:
+                    if block.kind != IMAGE:
+                        continue
+                    payload = self._image_payload(block.src or "")
+                    if payload is None:
+                        continue
+                    stream, image_width = payload
+                    cells[i].paragraphs[0].add_run().add_picture(
+                        stream, width=image_width
+                    )
+                    self._image_embedded += 1
                 if c.header:
                     for p in cells[i].paragraphs:
                         for r in p.runs:
@@ -619,10 +640,19 @@ class EpubCodec:
 
             # 按 spine 顺序读章节。manifest 的顺序不代表阅读顺序。
             base = opf_path.rsplit("/", 1)[0] if "/" in opf_path else ""
+            manifest = opf.findall(".//opf:manifest/opf:item", ns)
             id_to_href = {
-                it.get("id"): it.get("href")
-                for it in opf.findall(".//opf:manifest/opf:item", ns)
+                it.get("id"): it.get("href") for it in manifest
             }
+            cover_id = None
+            for meta in opf.findall(".//opf:metadata/opf:meta", ns):
+                if (meta.get("name") or "").lower() == "cover":
+                    cover_id = meta.get("content")
+                    break
+            for item in manifest:
+                if "cover-image" in (item.get("properties") or "").split():
+                    cover_id = item.get("id")
+                    break
 
             blocks: list[Block] = []
             chapters = 0
@@ -646,10 +676,46 @@ class EpubCodec:
                     blocks.extend(sub.blocks)
                     chapters += 1
 
+            cover_src = None
+            if cover_id and (cover_href := id_to_href.get(cover_id)):
+                cover_path = f"{base}/{cover_href}" if base else cover_href
+                cover_path = re.sub(r"[^/]+/\.\./", "", cover_path)
+                try:
+                    cover_raw = zf.read(cover_path)
+                except KeyError:
+                    cover_raw = b""
+                if cover_raw:
+                    import base64
+                    import mimetypes
+
+                    mime = (
+                        mimetypes.guess_type(cover_path)[0]
+                        or "application/octet-stream"
+                    )
+                    cover_src = (
+                        f"data:{mime};base64,"
+                        + base64.b64encode(cover_raw).decode("ascii")
+                    )
+
+            def contains_image(items: list[Block], src: str) -> bool:
+                for item in items:
+                    if item.kind == IMAGE and item.src == src:
+                        return True
+                    if item.children and contains_image(item.children, src):
+                        return True
+                    for row in item.rows:
+                        for cell in row:
+                            if contains_image(cell.blocks, src):
+                                return True
+                return False
+
+            if cover_src and not contains_image(blocks, cover_src):
+                blocks.insert(0, Block(IMAGE, src=cover_src, alt="封面"))
+
         pol.note(
             "电子书结构",
             Strategy.DROP,
-            f"{chapters} 章已合并为单一文档流，章节边界、封面和元数据未保留",
+            f"{chapters} 章已合并为单一文档流，章节边界和元数据未保留",
         )
         if embedded:
             pol.note(
@@ -657,6 +723,8 @@ class EpubCodec:
                 Strategy.EMULATE,
                 f"{embedded} 张 EPUB 章节图片已内嵌为 data URI",
             )
+        if any(b.kind == IMAGE and b.alt == "封面" for b in blocks):
+            pol.note("封面", Strategy.EMULATE, "封面图已保留为文档首图")
 
         return DocTree(
             blocks=blocks, title=title, author=author, lang=lang, source_type=EPUB
@@ -816,8 +884,17 @@ class EpubCodec:
         seen: dict[str, str] = {}
         items: list[tuple[str, str, str]] = []
         skipped = 0
-        for _, blocks in chapters:
+
+        def walk(blocks: list[Block]):
             for block in blocks:
+                yield block
+                yield from walk(block.children)
+                for row in block.rows:
+                    for cell in row:
+                        yield from walk(cell.blocks)
+
+        for _, blocks in chapters:
+            for block in walk(blocks):
                 if block.kind != IMAGE or not block.src:
                     continue
                 src = block.src

@@ -122,8 +122,17 @@ def _md_table(b: Block, pol: Policy) -> list[str]:
 
     width = max(len(r) for r in b.rows)
 
+    def cell_text(c) -> str:
+        parts: list[str] = []
+        for block in c.blocks:
+            if block.kind == IMAGE:
+                parts.append(f"![{block.alt or ''}]({block.src or ''})")
+            elif block.text:
+                parts.append(block.text)
+        return " ".join(parts).strip()
+
     def fmt_row(cells) -> str:
-        vals = [c.text.replace("|", "\\|").replace("\n", " ") for c in cells]
+        vals = [cell_text(c).replace("|", "\\|").replace("\n", " ") for c in cells]
         vals += [""] * (width - len(vals))
         return "| " + " | ".join(vals) + " |"
 
@@ -223,7 +232,23 @@ def _html_block(b: Block, indent: int = 0) -> list[str]:
                     attrs += f' colspan="{c.colspan}"'
                 if c.rowspan > 1:
                     attrs += f' rowspan="{c.rowspan}"'
-                lines.append(f"{pad}    <{tag}{attrs}>{_esc(c.text)}</{tag}>")
+                parts: list[str] = []
+                for block in c.blocks:
+                    if block.kind == PARAGRAPH:
+                        parts.append(_html_inline(block.spans))
+                    elif block.kind == IMAGE:
+                        parts.append(
+                            f'<img src="{_esc(block.src or "")}" '
+                            f'alt="{_esc(block.alt or "")}">'
+                        )
+                    else:
+                        parts.extend(
+                            line.strip() for line in _html_block(block, 0)
+                        )
+                inner = "".join(parts)
+                lines.append(
+                    f"{pad}    <{tag}{attrs}>{inner or _esc(c.text)}</{tag}>"
+                )
             lines.append(f"{pad}  </tr>")
         lines.append(f"{pad}</table>")
         return lines

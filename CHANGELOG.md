@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **DOCX 表格单元格图片**：解析时进入 DocTree；Markdown/HTML 表格和 DOCX 表格
+  写侧都会保留，不再只处理正文图片
+- **EPUB 封面图**：解析 OPF 的 `cover-image`/`meta name="cover"`，把封面作为首图保留
 - **EPUB 章节图片解析**：读 EPUB 时把章节里的相对图片路径内嵌为 data URI，
   转 Markdown/HTML/DOCX 不再丢图
 - **DOCX 页眉/页脚图片**：解析时提取页眉页脚图片并放在正文首尾，正文图片逻辑不变

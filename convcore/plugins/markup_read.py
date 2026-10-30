@@ -351,9 +351,14 @@ def _html_table(el) -> Block:
             if tag not in ("td", "th"):
                 continue
             spans = _html_spans(td)
+            cell_blocks = _html_blocks(td)
+            if not cell_blocks and spans:
+                cell_blocks = [Block(PARAGRAPH, spans=spans)]
+            elif spans and cell_blocks and cell_blocks[0].kind != PARAGRAPH:
+                cell_blocks.insert(0, Block(PARAGRAPH, spans=spans))
             cells.append(
                 Cell(
-                    blocks=[Block(PARAGRAPH, spans=spans)] if spans else [],
+                    blocks=cell_blocks,
                     colspan=int(td.get("colspan") or 1),
                     rowspan=int(td.get("rowspan") or 1),
                     header=tag == "th",

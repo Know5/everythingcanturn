@@ -328,3 +328,92 @@ def test_epub_parser_embeds_relative_images(tmp_path):
         b.kind == IMAGE and (b.src or "").startswith("data:image/png;base64,")
         for b in parsed.blocks
     )
+
+
+def test_docx_table_cell_images_reach_markdown(tmp_path):
+    """表格单元格里的图片应进入 DocTree，并在 Markdown 表格中保留。"""
+    import docx
+
+    from convcore.ir.markup import IMAGE, TABLE
+    from convcore.plugins.office import DocxCodec
+    from convcore.types import Resource
+
+    image = tmp_path / "cell.png"
+    Image.new("RGB", (18, 18), "green").save(image)
+    document = docx.Document()
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "label"
+    table.cell(0, 1).paragraphs[0].add_run().add_picture(str(image))
+    path = tmp_path / "table-image.docx"
+    document.save(path)
+
+    tree = DocxCodec().parse(
+        [
+            Resource(
+                media_type=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                path=path,
+            )
+        ],
+        {},
+    )
+    table_block = next(b for b in tree.blocks if b.kind == TABLE)
+    assert any(
+        block.kind == IMAGE and (block.src or "").startswith("data:image/png")
+        for cell in table_block.rows[0]
+        for block in cell.blocks
+    )
+
+
+def test_epub_cover_is_kept_as_first_image(tmp_path):
+    """OPF 里声明的 cover-image 应作为首图保留。"""
+    import io
+    import zipfile
+
+    from convcore.ir.markup import IMAGE
+    from convcore.plugins.office import EpubCodec
+    from convcore.types import Resource
+
+    cover = io.BytesIO()
+    Image.new("RGB", (24, 24), "purple").save(cover, "PNG")
+    opf = """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Book</dc:title><meta name="cover" content="cover-img"/>
+</metadata>
+<manifest>
+<item id="ch" href="ch.xhtml" media-type="application/xhtml+xml"/>
+<item id="cover-img" href="cover.png" media-type="image/png"/>
+</manifest>
+<spine><itemref idref="ch"/></spine>
+</package>"""
+    chapter = (
+        '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+        "<h1>Chapter</h1><p>text</p></body></html>"
+    )
+    container = (
+        '<?xml version="1.0"?><container version="1.0" '
+        'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+        '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+        'media-type="application/oebps-package+xml"/></rootfiles></container>'
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            zipfile.ZipInfo("mimetype"),
+            "application/epub+zip",
+            compress_type=zipfile.ZIP_STORED,
+        )
+        zf.writestr("META-INF/container.xml", container)
+        zf.writestr("OEBPS/content.opf", opf)
+        zf.writestr("OEBPS/ch.xhtml", chapter)
+        zf.writestr("OEBPS/cover.png", cover.getvalue())
+
+    tree = EpubCodec().parse(
+        [Resource(media_type="application/epub+zip", data=buf.getvalue())], {}
+    )
+    assert tree.blocks[0].kind == IMAGE
+    assert tree.blocks[0].alt == "封面"
+    assert (tree.blocks[0].src or "").startswith("data:image/png;base64,")
