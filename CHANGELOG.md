@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   进度/取消、环境探测只维护一份；两个前端只保留传输适配（js_api / HTTP）
 - 图搜索删掉未使用的 DIRECT 直连边；所有插件统一走 `Codec` 枢纽，
   remux 仍由媒体域 `MediaPlan` 在写出时判定
+- **PDF→Word 版面增强**：新增 `pdf_table_mode`（auto/lattice/stream/none），
+  默认 auto 在已有带框表格时关闭 stream 检测，避免公式/线条被误判成表格；
+  实测 15 页论文的表格数从 26 降到 2，生成时间从 106s 降到 96s。
+  新增 `pdf_heading_styles`，按字号/字重把推断标题映射为 Word Heading 1–3，
+  保留直接格式并让导航窗格/目录可用。CLI 对应 `--pdf-table-mode` 与
+  `--no-pdf-heading-styles`
 
 ### Fixed
 - 拖入文件被 WebView2 当成导航目标打开：全局 `dragover`/`drop` 的 `preventDefault`

@@ -71,6 +71,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
             ("rotate", args.rotate),
             ("split", args.split or None),
             ("review_marks", False if args.no_review_marks else None),
+            ("pdf_table_mode", args.pdf_table_mode),
+            ("pdf_heading_styles", False if args.no_pdf_heading_styles else None),
             ("force", args.force or None),
         )
         if v is not None
@@ -679,6 +681,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-review-marks",
         action="store_true",
         help="PDF 转 Word 时不在文档里插入复核提示",
+    )
+    c.add_argument(
+        "--pdf-table-mode",
+        choices=["auto", "lattice", "stream", "none"],
+        help="PDF 转 Word 的表格识别策略：auto 有带框表时关闭无框检测，避免公式误判",
+    )
+    c.add_argument(
+        "--no-pdf-heading-styles",
+        action="store_true",
+        help="PDF 转 Word 时不把推断出的标题映射为 Word Heading 样式",
     )
     c.add_argument("--overwrite", action="store_true", help="允许覆盖已存在的文件")
     c.add_argument("--quiet", action="store_true", help="只输出产物路径")

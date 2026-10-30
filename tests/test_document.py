@@ -369,3 +369,36 @@ def test_fidelity_beats_speed_within_same_loss_tier():
     assert path.fidelity_penalty == 0.0
     # 桥接路径确实更快，所以不是时间在起作用
     assert path.time_cost > 40
+
+
+def test_pdf_to_word_applies_heading_styles(pdfs, tmp_path):
+    """推断出的标题要映射成 Word Heading 样式，否则导航窗格/目录看不到章节。"""
+    res = convert_file(pdfs["report"], "docx", out_dir=tmp_path, overwrite=True)
+    d = _docx(res.outputs[0].path)
+    styles = {p.text.strip(): p.style.name for p in d.paragraphs if p.text.strip()}
+    assert styles["Quarterly Report"] == "Heading 1"
+    assert styles["Revenue by region"] == "Heading 2"
+    assert styles["Two column section"].startswith("Heading")
+    assert any("标题结构" in w for w in res.warnings)
+
+
+def test_pdf_heading_styles_can_be_disabled(pdfs, tmp_path):
+    res = convert_file(
+        pdfs["report"], "docx", out_dir=tmp_path, overwrite=True,
+        overrides={"pdf_heading_styles": False},
+    )
+    d = _docx(res.outputs[0].path)
+    assert not any(p.style.name.startswith("Heading") for p in d.paragraphs)
+
+
+def test_pdf_table_mode_lattice_keeps_ruled_tables(pdfs, tmp_path):
+    """有框表格在 lattice 模式下仍应还原，不能因为关掉 stream 检测就丢表。"""
+    res = convert_file(
+        pdfs["report"], "docx", out_dir=tmp_path, overwrite=True,
+        overrides={"pdf_table_mode": "lattice"},
+    )
+    d = _docx(res.outputs[0].path)
+    assert len(d.tables) == 1
+    assert [c.text.strip() for c in d.tables[0].rows[0].cells] == [
+        "Region", "Q1", "Q2", "Q3"
+    ]

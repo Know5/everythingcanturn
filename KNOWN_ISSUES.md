@@ -6,7 +6,7 @@
 
 ## 一、测试覆盖率短板
 
-本机全依赖环境最近一次全量统计：**80%**（7141 语句，1421 未覆盖；380 passed / 3 skipped）。
+本机全依赖环境最近一次全量统计：**80%**（7269 语句，1468 未覆盖；384 passed / 3 skipped）。
 低于 85% 的主要模块：
 
 | 模块 | 覆盖率 | 原因 |
@@ -16,6 +16,7 @@
 | `webui/server.py` | 66% | `tests/test_webui.py` 起真实服务测安全边界和转换主路径；未覆盖原生选择框等系统集成 |
 | `desktop/app.py` | 44% | pywebview 原生窗口，需 GUI 环境；纯逻辑已移入 `uiservice.py` |
 | `engines/install.py` | 50% | 大量分支依赖真实网络下载（HTTPS/SHA256/解压），本地无法触发 |
+| `plugins/document_word.py` | 71% | pdf2docx 集成 + 标题/表格策略；失败分支与复杂版面组合仍未覆盖 |
 | `plugins/office_soffice.py` | 52% | 依赖外部 LibreOffice（soffice），当前环境未装 |
 | `plugins/image_extra.py` | 68% | 大量失败分支依赖可选包（pillow-heif/rawpy 等）未安装 |
 | `plugins/archive.py` | 59% | 各归档格式的失败分支与外部后端 |

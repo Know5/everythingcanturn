@@ -28,7 +28,14 @@ from ._scratch import workdir
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-_OPTS = frozenset({"pages", "password", "review_marks", "min_confidence"})
+_OPTS = frozenset({
+    "pages",
+    "password",
+    "review_marks",
+    "min_confidence",
+    "pdf_table_mode",
+    "pdf_heading_styles",
+})
 
 # 置信度阈值。低于此值的重建元素在产物里标黄。
 # 取 0.85 和 FlyingMouse 一致——这个值的含义是「大概对但值得看一眼」。
@@ -130,10 +137,27 @@ class PdfToWord:
         if progress:
             progress(0.05, "分析版面")
 
+        table_mode = str(options.get("pdf_table_mode") or "auto").lower()
+        if table_mode not in {"auto", "lattice", "stream", "none"}:
+            raise ConversionError(
+                f"未知的 PDF 表格模式：{table_mode}（可用 auto/lattice/stream/none）"
+            )
+        # auto：有带框表格时关掉 stream 识别，避免把公式/线条误判成表格；
+        # 没有带框表格时保留 stream，否则无框表格会整体丢失。
+        parse_stream = ir.table_count == 0 if table_mode == "auto" else table_mode == "stream"
+        parse_lattice = table_mode != "none"
+        if table_mode == "stream":
+            parse_lattice = True
+
         cv = P2DConverter(str(src))
         try:
             # pdf2docx 的 pages 参数是 0 基索引列表
-            cv.convert(str(dst), pages=indices if options.get("pages") else None)
+            cv.convert(
+                str(dst),
+                pages=indices if options.get("pages") else None,
+                parse_lattice_table=parse_lattice,
+                parse_stream_table=parse_stream,
+            )
         except Exception as exc:
             raise ConversionError(
                 f"版面还原失败：{exc}。"
@@ -155,10 +179,161 @@ class PdfToWord:
         if options.get("review_marks", True):
             self._annotate(dst, scores, ir, pol)
 
+        if options.get("pdf_heading_styles", True):
+            self._apply_heading_styles(
+                dst, src, indices, pol, options.get("password")
+            )
+
         if progress:
             progress(1.0, "完成")
 
         return [Resource(media_type=target, path=dst)]
+
+    def _heading_outline(
+        self, src: Path, indices: list[int], password: str | None = None
+    ) -> list[tuple[str, int]]:
+        """从 PDF 字号/字重推断标题候选，返回 (规范化文本, 级别)。
+
+        只做标题层级，不重建正文。正文仍由 pdf2docx 的版面还原负责；
+        这里补的是 Word 的语义结构——没有 Heading 样式，Word 导航窗格、
+        目录和后续自动化都看不到章节。
+        """
+        import re
+        from collections import defaultdict
+
+        import pymupdf
+
+        sizes: dict[float, int] = defaultdict(int)
+        pages: list[Any] = []
+        with pymupdf.open(src) as doc:
+            if doc.needs_pass and password:
+                doc.authenticate(password)
+            for index in indices:
+                page = doc[index]
+                data = page.get_text("dict")
+                pages.append((float(page.rect.height), data))
+                for block in data.get("blocks", []):
+                    if block.get("type") != 0:
+                        continue
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            text = (span.get("text") or "").strip()
+                            if len(text) >= 3:
+                                sizes[round(float(span.get("size", 0)), 1)] += len(text)
+
+        if not sizes:
+            return []
+        body = max(sizes, key=sizes.get)  # type: ignore[arg-type]
+        if body <= 0:
+            return []
+
+        outline: list[tuple[str, int]] = []
+        seen: set[str] = set()
+        for height, data in pages:
+            for block in data.get("blocks", []):
+                if block.get("type") != 0:
+                    continue
+                bbox = block.get("bbox") or (0, 0, 0, 0)
+                if bbox[3] < 40 or bbox[1] > height - 40:
+                    continue  # 页眉/页脚/页码不参与标题推断
+                spans = [
+                    span
+                    for line in block.get("lines", [])
+                    for span in line.get("spans", [])
+                    if (span.get("text") or "").strip()
+                ]
+                if not spans:
+                    continue
+                lines = block.get("lines", [])
+                if len(lines) > 2:
+                    continue  # 标题通常一到两行；长块更像正文
+                text = " ".join(
+                    "".join(s.get("text", "") for s in line.get("spans", []))
+                    for line in lines
+                ).strip()
+                normalized = re.sub(r"\s+", " ", text).strip().lower()
+                if (
+                    len(normalized) < 2
+                    or len(normalized) > 120
+                    or normalized.isdigit()
+                    or normalized.endswith((",", ";", "."))
+                    or "@" in normalized
+                    or "http" in normalized
+                    or normalized.startswith(
+                        ("arxiv:", "doi:", "http:", "https:", "www.", "©")
+                    )
+                ):
+                    continue
+                if normalized in seen:
+                    continue
+                size = max(float(s.get("size", 0)) for s in spans)
+                ratio = size / body
+                if ratio >= 1.5:
+                    level = 1
+                elif ratio >= 1.18:
+                    level = 2
+                elif ratio >= 1.12:
+                    level = 3
+                else:
+                    continue
+                seen.add(normalized)
+                outline.append((normalized, level))
+        return outline
+
+    def _apply_heading_styles(
+        self,
+        docx_path: Path,
+        src: Path,
+        indices: list[int],
+        pol: Policy,
+        password: str | None = None,
+    ) -> None:
+        """把推断出的标题映射到 Word 的 Heading 样式，保留直接格式。"""
+        try:
+            import docx
+            import re
+
+            outline = self._heading_outline(src, indices, password)
+            if not outline:
+                return
+            doc = docx.Document(str(docx_path))
+            remaining = list(enumerate(outline))
+            applied = 0
+            for paragraph in doc.paragraphs:
+                raw = paragraph.text or ""
+                if re.search(r"(?:\.{3,}|…)\s*\d+\s*$", raw) or re.search(
+                    r"\t\s*\d+\s*$", raw
+                ):
+                    continue  # 目录项，别抢在真正的标题前面匹配
+                text = re.sub(r"\s+", " ", raw).strip().lower()
+                if len(text) < 2:
+                    continue
+                for pos, (heading, level) in list(remaining):
+                    if not (
+                        text == heading
+                        or (len(text) >= 6 and heading.startswith(text))
+                        or (len(heading) >= 6 and text.startswith(heading[:80]))
+                    ):
+                        continue
+                    try:
+                        paragraph.style = f"Heading {level}"
+                        paragraph.paragraph_format.keep_with_next = True
+                        applied += 1
+                    except Exception:
+                        pass
+                    remaining.remove((pos, (heading, level)))
+                    break
+            if applied:
+                doc.save(str(docx_path))
+                pol.note(
+                    "标题结构",
+                    Strategy.APPROXIMATE,
+                    f"已按字号/字重推断 {applied} 个标题并应用 Word Heading 样式；"
+                    "标题层级仍可能误判，可在 Word 导航窗格里快速核对",
+                )
+        except Exception:
+            # 标题样式是增强项，失败不能破坏已经生成的文档
+            pass
 
     def _preflight(self, ir: DocumentRef, pol: Policy) -> None:
         """转换前拦住注定失败的情况。

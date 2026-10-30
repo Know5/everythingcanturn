@@ -103,6 +103,10 @@ convcore convert photo.png -t jpeg -q 85 --max-edge 1920
 convcore targets mystery.bin
 convcore path photo.heic pdf
 
+# PDF → Word：默认自动选择表格识别策略，并把推断出的标题映射为 Word Heading 样式
+convcore convert report.pdf -t docx
+convcore convert report.pdf -t docx --pdf-table-mode lattice --no-pdf-heading-styles
+
 # 环境诊断：缺哪些依赖、哪些引擎没装
 convcore doctor
 ```
@@ -404,16 +408,6 @@ dist/convcore/convcore.exe  # 启动 GUI
   校验 Origin，并且只接受 `127.0.0.1` / `localhost` 作为 Host（防 DNS rebinding）
 
 详细评审见 `SECURITY_REVIEW.md`。
-
-## Code signing policy
-
-Windows release artifacts are built by
-[GitHub Actions](https://github.com/Know5/everythingcanturn/actions/workflows/release.yml)
-and are being submitted to SignPath Foundation for signing. Full policy,
-build provenance, roles and privacy: [CODE_SIGNING.md](CODE_SIGNING.md).
-
-Free code signing provided by [SignPath.io](https://about.signpath.io),
-certificate by [SignPath Foundation](https://signpath.org).
 
 ## 许可
 
