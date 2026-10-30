@@ -405,9 +405,23 @@ dist/convcore/convcore.exe  # 启动 GUI
 
 详细评审见 `SECURITY_REVIEW.md`。
 
+## Code signing policy
+
+Windows release artifacts are built by
+[GitHub Actions](https://github.com/Know5/everythingcanturn/actions/workflows/release.yml)
+and are being submitted to SignPath Foundation for signing. Full policy,
+build provenance, roles and privacy: [CODE_SIGNING.md](CODE_SIGNING.md).
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org).
+
 ## 许可
 
-MIT
+项目源码使用 **MIT**（见 [LICENSE](LICENSE)）。
+
+分发包包含 PyMuPDF（AGPL-3.0 或 Artifex 商业许可），因此包含 PDF 功能的二进制
+分发按 **AGPL-3.0** 的条款提供，完整源码在本仓库；闭源或商业分发需要先替换
+PyMuPDF 或取得 Artifex 商业许可。
 
 ---
 
