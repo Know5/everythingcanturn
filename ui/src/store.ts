@@ -11,6 +11,34 @@ import type { Env, FileInfo, Job, TargetItem } from "./types";
 
 export type FileRow = FileInfo & { chosen: string | null; job: Job | null };
 
+export interface RecentEntry {
+  id: string;
+  name: string;
+  outName: string;
+  outPath: string;
+  time: number;
+}
+
+const RECENT_KEY = "convcore.recent";
+
+function loadRecent(): RecentEntry[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.slice(0, 6) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(list: RecentEntry[]): void {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 6)));
+  } catch {
+    // localStorage 在 file:// 或隐私模式下可能不可用，最近记录不是关键路径
+  }
+}
+
 export interface FormatsGroup {
   key: string;
   label: string;
@@ -45,10 +73,12 @@ interface State {
   helpOpen: boolean;
   formats: FormatsGroup[] | null;
   engineProgress: Record<string, number>;
+  recent: RecentEntry[];
 
   boot: () => Promise<void>;
   addPaths: (paths: string[]) => Promise<string[]>;
   removeFile: (path: string) => void;
+  moveFile: (from: string, to: string) => void;
   clearAll: () => Promise<void>;
   setDragOver: (v: boolean) => void;
   setPreset: (v: string) => void;
@@ -62,6 +92,7 @@ interface State {
   resetOutDir: () => Promise<void>;
   openEngines: (v: boolean) => void;
   openHelp: (v: boolean) => void;
+  clearRecent: () => void;
   loadFormats: () => Promise<void>;
   installEngine: (key: string) => Promise<void>;
   setEngineProgress: (key: string, pct: number) => void;
@@ -91,6 +122,7 @@ export const useStore = create<State>((set, get) => ({
   helpOpen: false,
   formats: null,
   engineProgress: {},
+  recent: loadRecent(),
 
   boot: async () => {
     try {
@@ -141,6 +173,18 @@ export const useStore = create<State>((set, get) => ({
 
   removeFile: (path) =>
     set((s) => ({ files: s.files.filter((f) => f.path !== path) })),
+
+  moveFile: (from, to) =>
+    set((s) => {
+      if (from === to) return {};
+      const fromIdx = s.files.findIndex((f) => f.path === from);
+      const toIdx = s.files.findIndex((f) => f.path === to);
+      if (fromIdx < 0 || toIdx < 0) return {};
+      const files = [...s.files];
+      const [moved] = files.splice(fromIdx, 1);
+      files.splice(fromIdx < toIdx ? toIdx - 1 : toIdx, 0, moved);
+      return { files };
+    }),
 
   clearAll: async () => {
     const active = get().files.filter(
@@ -216,7 +260,19 @@ export const useStore = create<State>((set, get) => ({
     await api().cancel(id).catch(() => false);
   },
 
-  applyJob: (job) =>
+  applyJob: (job) => {
+    let recent = get().recent;
+    if (job.state === "done" && job.outPath) {
+      const entry: RecentEntry = {
+        id: job.id,
+        name: job.name ?? "",
+        outName: job.outName ?? "",
+        outPath: job.outPath,
+        time: Date.now(),
+      };
+      recent = [entry, ...recent.filter((r) => r.id !== entry.id)].slice(0, 6);
+      saveRecent(recent);
+    }
     set((s) => {
       const files = s.files.map((f) =>
         f.job && f.job.id === job.id ? { ...f, job: { ...f.job, ...job } } : f,
@@ -224,8 +280,9 @@ export const useStore = create<State>((set, get) => ({
       const active = files.some(
         (f) => f.job && (f.job.state === "running" || f.job.state === "pending"),
       );
-      return { files, running: active };
-    }),
+      return { files, running: active, recent };
+    });
+  },
 
   setOutDir: (dir) =>
     set((s) => (s.env ? { env: { ...s.env, outDir: dir } } : {})),
@@ -244,6 +301,11 @@ export const useStore = create<State>((set, get) => ({
   openHelp: (v) => {
     set({ helpOpen: v });
     if (v && !get().formats) void get().loadFormats();
+  },
+
+  clearRecent: () => {
+    saveRecent([]);
+    set({ recent: [] });
   },
 
   loadFormats: async () => {

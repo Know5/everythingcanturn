@@ -179,6 +179,48 @@ def detail(path: Path, mime: str) -> str:
     return ""
 
 
+def _thumb_data(image) -> str:
+    """把 PIL Image 缩成 160px 的 WebP data URI，供文件卡片直接展示。"""
+    import base64
+    import io
+
+    image = image.copy()
+    image.thumbnail((160, 160))
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, "WEBP", quality=78, method=4)
+    return "data:image/webp;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
+def thumbnail(path: Path, mime: str) -> str | None:
+    """生成卡片缩略图。只做图片和 PDF；其他格式没有廉价可靠的预览。"""
+    dom = domain_of(mime)
+    try:
+        if dom == "raster":
+            from PIL import Image
+
+            with Image.open(path) as image:
+                if getattr(image, "n_frames", 1) > 1:
+                    image.seek(0)
+                return _thumb_data(image)
+
+        if mime == "application/pdf":
+            import pymupdf
+            from PIL import Image
+
+            with pymupdf.open(path) as document:
+                page = document[0]
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(1, 1), alpha=False)
+                image = Image.frombytes(
+                    "RGB", (pix.width, pix.height), pix.samples
+                )
+                return _thumb_data(image)
+    except Exception:
+        return None
+    return None
+
+
 def _resource(mime: str, path: Path):
     from .types import Resource
 
@@ -256,6 +298,7 @@ def inspect_file(converter: Converter, raw: str) -> dict[str, Any]:
         "domain": src_domain,
         "domainLabel": DOMAIN_LABEL.get(src_domain, src_domain),
         "detail": detail(path, src_mt),
+        "thumb": thumbnail(path, src_mt),
         "groups": group_list,
         "targets": flat,
         "gatedHint": gated_hint,

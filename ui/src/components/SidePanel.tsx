@@ -143,7 +143,12 @@ export function SidePanel() {
       </div>
 
       <div className="side-footer">
-        <button className="primary-cta" disabled={!canRun} onClick={() => void run()}>
+        <button
+          className="primary-cta"
+          disabled={!canRun}
+          onClick={() => void run()}
+          title="开始转换（Ctrl+Enter）"
+        >
           <ThunderboltFilled />
           {running ? "转换中…" : pending > 0 ? `开始转换 · ${pending}` : "开始转换"}
         </button>

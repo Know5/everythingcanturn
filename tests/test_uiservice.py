@@ -54,3 +54,9 @@ def test_formats_data_and_snapshot(tmp_path):
     assert formats and all({"key", "items", "reaches"} <= set(g) for g in formats)
     assert service.snapshot() == []
     assert service.snapshot(["missing"]) == []
+
+
+def test_inspect_includes_raster_thumbnail(samples):
+    data = inspect_file(Converter(), str(samples["png"]))
+    assert data["thumb"].startswith("data:image/webp;base64,")
+    assert len(data["thumb"]) > 100

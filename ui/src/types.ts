@@ -51,6 +51,8 @@ export interface FileInfo {
   domain: string;
   domainLabel: string;
   detail: string;
+  /** 160px WebP data URI；图片/PDF 才有 */
+  thumb?: string | null;
   groups: TargetGroup[];
   gatedHint: string | null;
   default: string | null;

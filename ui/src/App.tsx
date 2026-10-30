@@ -21,6 +21,7 @@ import { TargetPicker } from "./components/TargetPicker";
 import { EnginePanel } from "./components/EnginePanel";
 import { HelpPanel } from "./components/HelpPanel";
 import { EmptyDrop } from "./components/bits";
+import { RecentPanel } from "./components/RecentPanel";
 
 const { Text } = Typography;
 
@@ -38,6 +39,8 @@ export default function App() {
   const setEngineProgress = useStore((s) => s.setEngineProgress);
   const applyJob = useStore((s) => s.applyJob);
   const clearAll = useStore((s) => s.clearAll);
+  const run = useStore((s) => s.run);
+  const running = useStore((s) => s.running);
 
   useEffect(() => {
     void boot();
@@ -53,6 +56,7 @@ export default function App() {
     window.onEngineProgress = (key, pct) => setEngineProgress(key, pct);
 
     const onDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("application/x-convcore-path")) return;
       e.preventDefault();
       setDragOver(true);
     };
@@ -88,6 +92,24 @@ export default function App() {
   };
 
   const hasFiles = files.length > 0;
+  const pending = files.filter((f) => !f.job || f.job.state === "pending").length;
+  const notChosen = files.filter((f) => !f.chosen).length;
+  const canRun = ready && !running && pending > 0 && notChosen === 0;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        void pick();
+      } else if (e.key === "Enter" && canRun) {
+        e.preventDefault();
+        void run();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pick, canRun, run]);
 
   return (
     <div className="app-shell">
@@ -110,7 +132,10 @@ export default function App() {
 
       {ready && !hasFiles && (
         <div className="workspace empty">
-          <EmptyDrop onClick={() => void pick()} hot={dragOver} />
+          <div className="empty-stack">
+            <EmptyDrop onClick={() => void pick()} hot={dragOver} />
+            <RecentPanel />
+          </div>
         </div>
       )}
 
@@ -129,7 +154,11 @@ export default function App() {
               </div>
               <div className="queue-actions">
                 {adding && <Spin size="small" />}
-                <button className="head-action primary" onClick={() => void pick()}>
+                <button
+                  className="head-action primary"
+                  onClick={() => void pick()}
+                  title="添加文件（Ctrl+O）"
+                >
                   <PlusOutlined /> 添加文件
                 </button>
                 <button className="head-action" onClick={() => openPicker("*")}>
@@ -155,7 +184,11 @@ export default function App() {
               ))}
             </div>
 
-            <button className="queue-more" onClick={() => void pick()}>
+            <button
+              className="queue-more"
+              onClick={() => void pick()}
+              title="添加文件（Ctrl+O）"
+            >
               <PlusOutlined />
               继续添加文件，或把文件拖进窗口
             </button>

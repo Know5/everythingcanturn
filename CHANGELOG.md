@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   空状态重做为居中拖放区；目标选择器改成可搜索的双列格式列表；任务面板集中
   统计、输出目录、质量预设与主操作；引擎/帮助弹层统一为同一套信息层级。
   同时补充窄窗口适配与暗色分层 token
+- 文件卡片支持图片/PDF 缩略图与拖拽排序；空状态显示最近完成记录
+  （localStorage，可打开/定位/重新加入）；新增 `Ctrl+O` 添加文件、
+  `Ctrl+Enter` 开始转换与卡片进场动效
 - `convcore gui` 新增 `--ui-dev URL`，可指向 Vite 开发服务器做前端热更新
 - Windows 标题栏改为跟随暗色（`DwmSetWindowAttribute`），失败时静默退化为系统默认
 - 桌面端与浏览器端的状态机合并到 `convcore/uiservice.py`：`inspect`、逐文件任务、

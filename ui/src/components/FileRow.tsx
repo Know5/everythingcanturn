@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Tooltip } from "antd";
 import {
   CheckCircleFilled,
@@ -16,6 +17,9 @@ export function FileRow({ file }: { file: Row }) {
   const openPicker = useStore((s) => s.openPicker);
   const removeFile = useStore((s) => s.removeFile);
   const cancelJob = useStore((s) => s.cancelJob);
+  const moveFile = useStore((s) => s.moveFile);
+  const [dragging, setDragging] = useState(false);
+  const [dropTarget, setDropTarget] = useState(false);
 
   const job = file.job;
   const target = targetOf(file, file.chosen);
@@ -26,7 +30,41 @@ export function FileRow({ file }: { file: Row }) {
   const ext = (file.name.split(".").pop() ?? "?").toUpperCase();
 
   return (
-    <div className={`file-card${busy ? " is-running" : ""}${done ? " is-done" : ""}`}>
+    <div
+      className={`file-card${busy ? " is-running" : ""}${done ? " is-done" : ""}${
+        dragging ? " is-dragging" : ""
+      }${dropTarget ? " is-drop-target" : ""}`}
+      draggable={!busy}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/x-convcore-path", file.path);
+        e.dataTransfer.effectAllowed = "move";
+        setDragging(true);
+      }}
+      onDragEnd={() => {
+        setDragging(false);
+        setDropTarget(false);
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("application/x-convcore-path")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setDropTarget(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setDropTarget(false);
+        }
+      }}
+      onDrop={(e) => {
+        const from = e.dataTransfer.getData("application/x-convcore-path");
+        if (from) {
+          e.preventDefault();
+          e.stopPropagation();
+          moveFile(from, file.path);
+        }
+        setDropTarget(false);
+      }}
+    >
       <div
         className="file-icon"
         style={{
@@ -35,7 +73,13 @@ export function FileRow({ file }: { file: Row }) {
           border: `1px solid ${color}2e`,
         }}
       >
-        {ext.length > 4 ? ext.slice(0, 4) : ext}
+        {file.thumb ? (
+          <img src={file.thumb} alt="" />
+        ) : ext.length > 4 ? (
+          ext.slice(0, 4)
+        ) : (
+          ext
+        )}
       </div>
 
       <div className="file-main">
