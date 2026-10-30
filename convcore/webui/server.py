@@ -54,6 +54,11 @@ class UiState:
     ) -> list[str]:
         return self.service.enqueue_concat(paths, target, preset)
 
+    def merge_images(
+        self, paths: list[str], target: str, preset: str | None
+    ) -> list[str]:
+        return self.service.enqueue_merge_images(paths, target, preset)
+
     def cancel(self, jid: str) -> bool:
         return self.service.cancel(jid)
 
@@ -238,6 +243,23 @@ def make_handler(state: UiState):
                             self._err(f"未知目标格式：{it.get('target')}")
                             return
                     ids = state.enqueue(items, body.get("preset") or None)
+                    self._json({"ids": ids})
+                elif route == "/api/merge-images":
+                    paths = body.get("paths") or []
+                    target = body.get("target", "")
+                    if len(paths) < 2:
+                        self._err("图片合并至少需要两个文件")
+                        return
+                    if resolve_target(target) is None:
+                        self._err(f"未知目标格式：{target}")
+                        return
+                    for raw in paths:
+                        if not Path(str(raw)).expanduser().is_file():
+                            self._err(f"文件不存在：{raw}")
+                            return
+                    ids = state.merge_images(
+                        [str(p) for p in paths], target, body.get("preset") or None
+                    )
                     self._json({"ids": ids})
                 elif route == "/api/concat":
                     paths = body.get("paths") or []

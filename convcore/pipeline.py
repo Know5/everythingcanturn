@@ -635,6 +635,95 @@ def convert_file(
     return res
 
 
+def merge_files(
+    sources: list[Path],
+    target: str,
+    *,
+    out_dir: Path | None = None,
+    out_path: Path | None = None,
+    preset: str | None = None,
+    overrides: dict[str, Any] | None = None,
+    overwrite: bool = False,
+    progress: ProgressFn | None = None,
+    converter: Converter | None = None,
+    stem: str | None = None,
+) -> ConvertResult:
+    """多张图片合成一张动图（GIF/WebP/TIFF）。
+
+    与 convert_file 的区别只在输入基数；PillowCodec 已经把多图解析成帧序列，
+    这里负责校验、命名和落盘。
+    """
+    from .formats import domain_of, resolve_target
+
+    if len(sources) < 2:
+        raise ConversionError("图片合并至少需要两个文件")
+    conv = converter or Converter()
+    target_mt = resolve_target(target)
+    if target_mt is None:
+        raise ConversionError(f"未知目标格式：{target}")
+    if target_mt not in ("image/gif", "image/webp", "image/tiff"):
+        raise ConversionError(
+            "图片合并目标只支持 GIF / WebP / TIFF（支持动画的格式）"
+        )
+
+    src_mts = [conv.detect(source) for source in sources]
+    if any(domain_of(mt) != "raster" for mt in src_mts):
+        bad = next(s for s, mt in zip(sources, src_mts) if domain_of(mt) != "raster")
+        raise ConversionError(f"不是位图文件：{bad.name}")
+
+    opts = policy_mod.resolve_options(target_mt, preset, overrides)
+    base = out_dir or (out_path.parent if out_path else sources[0].parent)
+    base.mkdir(parents=True, exist_ok=True)
+
+    # 多图可能格式不同；统一按第一张的读入类型进图，Pillow 仍按字节内容解码。
+    src_mt = src_mts[0]
+    res = conv.convert(
+        ConvertRequest(
+            inputs=[Resource(media_type=src_mt, path=p) for p in sources],
+            target=target_mt,
+            options=opts,
+            overwrite=overwrite,
+            stem=stem or f"{sources[0].stem}-merge",
+        ),
+        progress=progress,
+        persist_dir=base,
+    )
+
+    total = len(res.outputs)
+    staged_paths = {
+        out.path
+        for out in res.outputs
+        if out.path is not None and out.path.resolve() not in {p.resolve() for p in sources}
+    }
+    try:
+        for i, out in enumerate(res.outputs):
+            dest = out_path if out_path is not None and total == 1 else (
+                base / (out.name or output_name(out, target_mt, i, total))
+            )
+            if any(
+                o is not out and o.path is not None and o.path == dest
+                for o in res.outputs
+            ):
+                raise ConversionError(f"产物文件名冲突：{dest.name}")
+            if dest.exists() and not overwrite:
+                raise ConversionError(
+                    f"目标已存在：{dest}（用 --overwrite 覆盖）"
+                )
+            if any(dest.resolve() == source.resolve() for source in sources):
+                raise ConversionError("输出会覆盖源文件，请指定不同的输出路径")
+            staged = out.path
+            _atomic_copy_resource(out, dest, overwrite=overwrite)
+            if staged in staged_paths:
+                staged_paths.discard(staged)
+                staged.unlink(missing_ok=True)
+            out.path, out.data, out.name = dest, None, dest.name
+    except BaseException:
+        for staged in staged_paths:
+            staged.unlink(missing_ok=True)
+        raise
+    return res
+
+
 def _atomic_copy_resource(res: Resource, dest: Path, *, overwrite: bool) -> None:
     """流式写出资源并原子替换目标，避免留下半截文件。"""
     # 耐久性说明：写完只 flush 到 OS 缓存不做 fsync（见下方），掉电最多

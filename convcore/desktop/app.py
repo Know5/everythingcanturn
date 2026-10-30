@@ -97,6 +97,18 @@ class Api:
             paths, target, preset, opts, on_update=self._emit
         )
 
+    def merge_images(
+        self,
+        paths: list[str],
+        target: str,
+        preset: str | None,
+        opts: dict,
+    ) -> list[str]:
+        """把多张图片合成一张 GIF/WebP/TIFF 动图。"""
+        return self._service.enqueue_merge_images(
+            paths, target, preset, opts, on_update=self._emit
+        )
+
     def _emit(self, job: dict[str, Any]) -> None:
         """把任务状态推给前端。
 

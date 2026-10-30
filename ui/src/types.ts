@@ -98,6 +98,12 @@ export interface PywebviewApi {
     preset: string | null,
     opts: Record<string, unknown>,
   ): Promise<string[]>;
+  merge_images(
+    paths: string[],
+    target: string,
+    preset: string | null,
+    opts: Record<string, unknown>,
+  ): Promise<string[]>;
   cancel(jid: string): Promise<boolean>;
   cancel_all(): Promise<number>;
   reveal(path: string): Promise<boolean>;

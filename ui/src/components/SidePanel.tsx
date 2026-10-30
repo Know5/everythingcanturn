@@ -24,21 +24,40 @@ export function SidePanel() {
   const concat = useStore((s) => s.concat);
   const toggleConcat = useStore((s) => s.toggleConcat);
   const setConcatTarget = useStore((s) => s.setConcatTarget);
+  const imageMerge = useStore((s) => s.imageMerge);
+  const runImageMerge = useStore((s) => s.runImageMerge);
+  const toggleImageMerge = useStore((s) => s.toggleImageMerge);
+  const setImageMergeTarget = useStore((s) => s.setImageMergeTarget);
   const pickOutDir = useStore((s) => s.pickOutDir);
   const resetOutDir = useStore((s) => s.resetOutDir);
 
   const { pending, done, failed, lossy, notChosen } = summary(files);
   const total = files.reduce((n, f) => n + f.size, 0);
   const mediaFiles = files.filter((f) => f.domain === "media");
+  const imageFiles = files.filter((f) => f.domain === "raster");
   const concatMode = concat.enabled && mediaFiles.length >= 2;
+  const imageMode = imageMerge.enabled && imageFiles.length >= 2;
   const canRun = ready && !running && (
-    concatMode ? !!concat.target : pending > 0 && notChosen === 0
+    imageMode
+      ? !!imageMerge.target
+      : concatMode
+        ? !!concat.target
+        : pending > 0 && notChosen === 0
   );
   const concatOptions = mediaFiles[0]?.groups.find((g) => g.key === "media")?.items ?? [];
   const concatItem = concatOptions.find((i) => i.mime === concat.target);
+  const imageOptions = (imageFiles[0]?.groups.find((g) => g.key === "raster")?.items ?? [])
+    .filter((i) => ["image/gif", "image/webp", "image/tiff"].includes(i.mime));
+  const imageItem = imageOptions.find((i) => i.mime === imageMerge.target);
 
   const outputs = new Map<string, { label: string; ext: string; count: number }>();
-  if (concatMode && concatItem) {
+  if (imageMode && imageItem) {
+    outputs.set(imageItem.mime, {
+      label: imageItem.label,
+      ext: imageItem.ext,
+      count: 1,
+    });
+  } else if (concatMode && concatItem) {
     outputs.set(concatItem.mime, {
       label: concatItem.label,
       ext: concatItem.ext,
@@ -46,7 +65,7 @@ export function SidePanel() {
     });
   }
   for (const f of files) {
-    if (concatMode) break;
+    if (concatMode || imageMode) break;
     const t = targetOf(f, f.chosen);
     if (!t) continue;
     const row = outputs.get(t.mime);
@@ -141,6 +160,61 @@ export function SidePanel() {
 
         <div className="panel-divider" />
 
+        {imageFiles.length >= 2 && (
+          <div className="panel-block">
+            <div className="panel-title">图片序列</div>
+            <div className="concat-toggle">
+              <div>
+                <b>合成动图</b>
+                <span>{imageFiles.length} 张图片按队列顺序</span>
+              </div>
+              <Switch
+                checked={imageMerge.enabled}
+                onChange={(v) => toggleImageMerge(v)}
+                size="small"
+              />
+            </div>
+            {imageMerge.enabled && (
+              <>
+                <Select
+                  value={imageMerge.target ?? undefined}
+                  onChange={setImageMergeTarget}
+                  style={{ width: "100%" }}
+                  options={imageOptions.map((i) => ({
+                    value: i.mime,
+                    label: `${i.label} .${i.ext}`,
+                  }))}
+                  placeholder="选择动图格式"
+                />
+                <div className="soft-note" style={{ marginTop: 6 }}>
+                  默认每帧 100ms；GIF/WebP/TIFF 支持动画。
+                </div>
+              </>
+            )}
+            {imageMerge.job && (
+              <div className="concat-status">
+                <div className="concat-status-head">
+                  <span>{imageMerge.job.step || "合成中"}</span>
+                  <span>{imageMerge.job.count ?? imageFiles.length} 张</span>
+                </div>
+                <Progress
+                  percent={Math.round((imageMerge.job.progress ?? 0) * 100)}
+                  size="small"
+                  showInfo={false}
+                />
+                {imageMerge.job.error && (
+                  <div className="concat-error">{imageMerge.job.error}</div>
+                )}
+                {imageMerge.job.outPath && (
+                  <div className="soft-note">{imageMerge.job.outPath}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="panel-divider" />
+
         {mediaFiles.length >= 2 && (
           <div className="panel-block">
             <div className="panel-title">音视频合并</div>
@@ -219,19 +293,27 @@ export function SidePanel() {
         <button
           className="primary-cta"
           disabled={!canRun}
-          onClick={() => void (concatMode ? runConcat() : run())}
-          title={concatMode ? "开始合并" : "开始转换（Ctrl+Enter）"}
+          onClick={() =>
+            void (imageMode ? runImageMerge() : concatMode ? runConcat() : run())
+          }
+          title={
+            imageMode || concatMode ? "开始合并" : "开始转换（Ctrl+Enter）"
+          }
         >
           <ThunderboltFilled />
           {running
-            ? concatMode
-              ? "合并中…"
-              : "转换中…"
-            : concatMode
-              ? `合并音视频 · ${mediaFiles.length}`
-              : pending > 0
-                ? `开始转换 · ${pending}`
-                : "开始转换"}
+            ? imageMode
+              ? "合成中…"
+              : concatMode
+                ? "合并中…"
+                : "转换中…"
+            : imageMode
+              ? `合成动图 · ${imageFiles.length}`
+              : concatMode
+                ? `合并音视频 · ${mediaFiles.length}`
+                : pending > 0
+                  ? `开始转换 · ${pending}`
+                  : "开始转换"}
         </button>
         <div className="privacy-note">
           <SafetyCertificateOutlined />

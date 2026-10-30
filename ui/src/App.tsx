@@ -41,7 +41,9 @@ export default function App() {
   const clearAll = useStore((s) => s.clearAll);
   const run = useStore((s) => s.run);
   const runConcat = useStore((s) => s.runConcat);
+  const runImageMerge = useStore((s) => s.runImageMerge);
   const concat = useStore((s) => s.concat);
+  const imageMerge = useStore((s) => s.imageMerge);
   const running = useStore((s) => s.running);
 
   useEffect(() => {
@@ -97,9 +99,15 @@ export default function App() {
   const pending = files.filter((f) => !f.job || f.job.state === "pending").length;
   const notChosen = files.filter((f) => !f.chosen).length;
   const mediaCount = files.filter((f) => f.domain === "media").length;
+  const imageCount = files.filter((f) => f.domain === "raster").length;
   const concatMode = concat.enabled && mediaCount >= 2;
+  const imageMode = imageMerge.enabled && imageCount >= 2;
   const canRun = ready && !running && (
-    concatMode ? !!concat.target : pending > 0 && notChosen === 0
+    imageMode
+      ? !!imageMerge.target
+      : concatMode
+        ? !!concat.target
+        : pending > 0 && notChosen === 0
   );
 
   useEffect(() => {
@@ -110,12 +118,12 @@ export default function App() {
         void pick();
       } else if (e.key === "Enter" && canRun) {
         e.preventDefault();
-        void (concatMode ? runConcat() : run());
+        void (imageMode ? runImageMerge() : concatMode ? runConcat() : run());
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pick, canRun, concatMode, run, runConcat]);
+  }, [pick, canRun, imageMode, concatMode, run, runImageMerge, runConcat]);
 
   return (
     <div className="app-shell">

@@ -83,6 +83,29 @@ def cmd_convert(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir) if args.out_dir else None
     single_out = Path(args.output) if args.output else None
 
+    if getattr(args, "merge_images", False):
+        if len(sources) < 2:
+            print("图片合并至少需要两个文件", file=sys.stderr)
+            return 2
+        from .pipeline import merge_files
+
+        try:
+            res = merge_files(
+                sources,
+                args.target,
+                out_path=single_out,
+                out_dir=out_dir,
+                preset=args.preset,
+                overrides=overrides,
+                overwrite=args.overwrite,
+                progress=None if args.quiet else _progress_printer(),
+            )
+        except ConversionError as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            return 1
+        _report(sources[0], res, quiet=args.quiet)
+        return 0
+
     if getattr(args, "concat", False):
         if len(sources) < 2:
             print("concat 至少需要两个源文件", file=sys.stderr)
@@ -730,6 +753,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--concat",
         action="store_true",
         help="把多个源文件按顺序拼接成一个音视频输出",
+    )
+    c.add_argument(
+        "--merge-images",
+        action="store_true",
+        help="把多张图片按顺序合成一张 GIF/WebP/TIFF 动图",
     )
     c.add_argument("--overwrite", action="store_true", help="允许覆盖已存在的文件")
     c.add_argument("--quiet", action="store_true", help="只输出产物路径")

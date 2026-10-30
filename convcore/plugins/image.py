@@ -90,7 +90,7 @@ if _HAS_JXL:
 # ICO 的标准尺寸集。Windows 会按需挑选，所以要多尺寸打包而不是只存一张。
 _ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 
-_GEOM_OPTS = frozenset({"width", "height", "max_edge", "scale"})
+_GEOM_OPTS = frozenset({"width", "height", "max_edge", "scale", "frame_duration"})
 
 
 @register
@@ -157,6 +157,12 @@ class PillowCodec:
         merged = rasters[0]
         for extra in rasters[1:]:
             merged.frames.extend(extra.frames)
+        # 静态图没有帧延时；不补默认值会让 is_animated 为假，
+        # writer 把每帧拆成独立文件，而不是合成一张动图。
+        delay = max(20, int(options.get("frame_duration", 100)))
+        for frame in merged.frames:
+            if frame.duration_ms <= 0:
+                frame.duration_ms = delay
         return merged
 
     def write(
@@ -209,19 +215,32 @@ class PillowCodec:
         """GIF 帧统一到一张自适应 256 色调色板。
 
         Pillow 的 convert("P") 用 WEB 216 色调色板（上世纪 8 位显示器的色阶），
-        照片渐变会 posterize；逐帧独立调色板又会让动图闪烁。首帧中值切分
-        出调色板、其余帧映射过去：颜色自适应且帧间稳定。
+        照片渐变会 posterize；逐帧独立调色板又会让动图闪烁。这里用所有帧的
+        缩略图合成一张取样图，统一中值切分调色板——多张不同图片合成 GIF 时
+        不会像「只用首帧调色板」那样把后续帧压成同一种颜色。
         """
+        if all(im.mode == "P" for im in frames):
+            return frames
+
+        width, height = frames[0].size
+        if len(frames) == 1:
+            palette = frames[0].convert("RGB").quantize(
+                colors=256, method=Image.Quantize.MEDIANCUT
+            )
+        else:
+            sample = Image.new("RGB", (64, 64 * len(frames)))
+            for i, im in enumerate(frames):
+                sample.paste(im.convert("RGB").resize((64, 64)), (0, i * 64))
+            palette = sample.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+
         dither = Image.Dither.FLOYDSTEINBERG if pol.dither else Image.Dither.NONE
-        palette = frames[0].convert("RGB").quantize(
-            colors=256, method=Image.Quantize.MEDIANCUT
-        )
-        return [
-            im
-            if im.mode == "P"
-            else im.convert("RGB").quantize(palette=palette, dither=dither)
-            for im in frames
-        ]
+        out: list[Any] = []
+        for im in frames:
+            rgb = im.convert("RGB")
+            if rgb.size != (width, height):
+                rgb = rgb.resize((width, height))
+            out.append(rgb.quantize(palette=palette, dither=dither))
+        return out
 
 
     def _save_kwargs(

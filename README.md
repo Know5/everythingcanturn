@@ -117,6 +117,9 @@ convcore convert scan.pdf -t md --ocr-lang chi_sim+eng --ocr-dpi 300
 # 音视频按顺序拼接（同编码无损；编码不一致时自动转码）
 convcore convert part1.mp4 part2.mp4 -t mp4 --concat -o joined.mp4
 
+# 多张图片合成动图（GIF/WebP/TIFF）
+convcore convert frame1.png frame2.jpg frame3.png -t gif --merge-images -o anim.gif
+
 # 环境诊断：缺哪些依赖、哪些引擎没装
 convcore doctor
 ```

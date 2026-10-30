@@ -115,6 +115,7 @@ def test_public_methods_are_the_intended_surface(api: Api) -> None:
         "inspect",
         "convert",
         "concat",
+        "merge_images",
         "cancel",
         "cancel_all",
         "notify_drop",
@@ -437,3 +438,21 @@ def test_concat_starts_one_job(api: Api, tmp_path) -> None:
     assert job["state"] == "done", job
     assert job["count"] == 2
     assert job["outName"].endswith(".mp4")
+
+
+def test_merge_images_starts_one_job(api: Api, tmp_path) -> None:
+    """多图合成动图只产生一个任务。"""
+    from PIL import Image
+
+    paths = []
+    for i, color in enumerate(("red", "green", "blue")):
+        path = tmp_path / f"{i}.png"
+        Image.new("RGB", (32, 24), color).save(path)
+        paths.append(str(path))
+
+    ids = api.merge_images(paths, "gif", None, {})
+    assert len(ids) == 1
+    job = _wait(api, ids[0])
+    assert job["state"] == "done", job
+    assert job["count"] == 3
+    assert job["outName"].endswith(".gif")

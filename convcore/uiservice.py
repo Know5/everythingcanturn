@@ -599,6 +599,52 @@ class UiService:
         ).start()
         return [jid]
 
+    def enqueue_merge_images(
+        self,
+        paths: list[str],
+        target: str,
+        preset: str | None = None,
+        opts: dict[str, Any] | None = None,
+        on_update: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[str]:
+        """多张位图合成一张动图（GIF/WebP/TIFF）。"""
+        sources = [Path(p).expanduser() for p in paths]
+        if len(sources) < 2:
+            raise ConversionError("图片合并至少需要两个文件")
+        for source in sources:
+            if not source.is_file():
+                raise ConversionError(f"文件不存在：{source}")
+        from .formats import resolve_target
+        from .formats import domain_of as _domain_of
+
+        target_mt = resolve_target(target)
+        if target_mt is None:
+            raise ConversionError(f"未知目标格式：{target}")
+        if target_mt not in ("image/gif", "image/webp", "image/tiff"):
+            raise ConversionError("图片合并目标只支持 GIF / WebP / TIFF")
+        for source in sources:
+            if _domain_of(self.converter.detect(source)) != "raster":
+                raise ConversionError(f"不是位图文件：{source.name}")
+
+        jid = secrets.token_hex(6)
+        with self.lock:
+            self._prune()
+            self.jobs[jid] = UiJob(
+                id=jid,
+                source=sources[0],
+                sources=sources,
+                target=target_mt,
+                preset=preset,
+                overrides=dict(opts or {}),
+                out_dir=self.out_dir,
+                stem=f"{sources[0].stem}-merge",
+                src_size=sum(s.stat().st_size for s in sources),
+            )
+        threading.Thread(
+            target=self._run, args=(jid, on_update), daemon=True
+        ).start()
+        return [jid]
+
     def _run(
         self,
         jid: str,
@@ -631,17 +677,32 @@ class UiService:
             overrides["_cancel"] = lambda: job._cancel.is_set()
 
             if len(job.sources) > 1:
-                from .plugins.media import concat_media
+                from .formats import domain_of
 
-                res = concat_media(
-                    job.sources,
-                    job.target,
-                    out_dir=job.out_dir or job.source.parent,
-                    preset=job.preset,
-                    options=overrides,
-                    overwrite=False,
-                    progress=on_progress,
-                )
+                if domain_of(job.target) == "raster":
+                    from .pipeline import merge_files
+
+                    res = merge_files(
+                        job.sources,
+                        job.target,
+                        out_dir=job.out_dir or job.source.parent,
+                        preset=job.preset,
+                        overrides=overrides,
+                        overwrite=False,
+                        progress=on_progress,
+                    )
+                else:
+                    from .plugins.media import concat_media
+
+                    res = concat_media(
+                        job.sources,
+                        job.target,
+                        out_dir=job.out_dir or job.source.parent,
+                        preset=job.preset,
+                        options=overrides,
+                        overwrite=False,
+                        progress=on_progress,
+                    )
             else:
                 res = convert_file(
                     job.source,

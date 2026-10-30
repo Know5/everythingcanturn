@@ -61,6 +61,13 @@ export interface ConcatState {
   count: number;
 }
 
+export interface ImageMergeState {
+  enabled: boolean;
+  target: string | null;
+  job: Job | null;
+  count: number;
+}
+
 interface PickerState {
   /** null=关闭；'*'=批量；其余为文件 path */
   target: string | null;
@@ -77,6 +84,7 @@ interface State {
   adding: boolean;
   picker: PickerState;
   concat: ConcatState;
+  imageMerge: ImageMergeState;
   enginesOpen: boolean;
   helpOpen: boolean;
   formats: FormatsGroup[] | null;
@@ -96,6 +104,9 @@ interface State {
   runConcat: () => Promise<void>;
   toggleConcat: (enabled: boolean) => void;
   setConcatTarget: (mime: string) => void;
+  runImageMerge: () => Promise<void>;
+  toggleImageMerge: (enabled: boolean) => void;
+  setImageMergeTarget: (mime: string) => void;
   cancelJob: (id: string) => Promise<void>;
   applyJob: (job: Job) => void;
   setOutDir: (dir: string | null) => void;
@@ -128,6 +139,18 @@ function concatTarget(files: FileRow[]): string | null {
   return media.items.find((i) => i.mime === pref)?.mime ?? media.items[0].mime;
 }
 
+function imageMergeTarget(files: FileRow[]): string | null {
+  const first = files.find((f) => f.domain === "raster");
+  if (!first) return null;
+  const raster = first.groups.find((g) => g.key === "raster");
+  if (!raster?.items.length) return null;
+  for (const mime of ["image/gif", "image/webp", "image/tiff"]) {
+    const hit = raster.items.find((i) => i.mime === mime);
+    if (hit) return hit.mime;
+  }
+  return null;
+}
+
 export const useStore = create<State>((set, get) => ({
   ready: false,
   bootError: null,
@@ -139,6 +162,7 @@ export const useStore = create<State>((set, get) => ({
   adding: false,
   picker: { target: null },
   concat: { enabled: false, target: null, job: null, count: 0 },
+  imageMerge: { enabled: false, target: null, job: null, count: 0 },
   enginesOpen: false,
   helpOpen: false,
   formats: null,
@@ -196,12 +220,17 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       const files = s.files.filter((f) => f.path !== path);
       const media = files.filter((f) => f.domain === "media");
+      const images = files.filter((f) => f.domain === "raster");
       return {
         files,
         concat:
           media.length < 2
             ? { ...s.concat, enabled: false, target: null, count: 0 }
             : s.concat,
+        imageMerge:
+          images.length < 2
+            ? { ...s.imageMerge, enabled: false, target: null, count: 0 }
+            : s.imageMerge,
       };
     }),
 
@@ -231,10 +260,18 @@ export const useStore = create<State>((set, get) => ({
     ) {
       await api().cancel(concatJob.id).catch(() => false);
     }
+    const imageJob = get().imageMerge.job;
+    if (
+      imageJob &&
+      (imageJob.state === "running" || imageJob.state === "pending")
+    ) {
+      await api().cancel(imageJob.id).catch(() => false);
+    }
     set({
       files: [],
       running: false,
       concat: { enabled: false, target: null, job: null, count: 0 },
+      imageMerge: { enabled: false, target: null, job: null, count: 0 },
     });
   },
 
@@ -342,11 +379,67 @@ export const useStore = create<State>((set, get) => ({
         target: enabled ? concatTarget(files) : s.concat.target,
         count: enabled ? media.length : 0,
       },
+      imageMerge: enabled
+        ? { ...s.imageMerge, enabled: false, job: null, count: 0 }
+        : s.imageMerge,
     }));
   },
 
   setConcatTarget: (mime) =>
     set((s) => ({ concat: { ...s.concat, target: mime } })),
+
+  runImageMerge: async () => {
+    const { files, preset, running, ready: isReady, imageMerge } = get();
+    if (running || !isReady || !imageMerge.enabled || !imageMerge.target) return;
+    const images = files.filter((f) => f.domain === "raster");
+    if (images.length < 2) return;
+    let ids: string[];
+    try {
+      ids = await api().merge_images(
+        images.map((f) => f.path),
+        imageMerge.target,
+        preset || null,
+        {},
+      );
+    } catch (e) {
+      set({ bootError: `启动图片合并失败：${e}` });
+      return;
+    }
+    set({
+      running: true,
+      imageMerge: {
+        ...imageMerge,
+        job: {
+          id: ids[0],
+          name: "图片合并",
+          count: images.length,
+          state: "pending",
+          progress: 0,
+          step: "排队中",
+        } as Job,
+      },
+    });
+  },
+
+  toggleImageMerge: (enabled) => {
+    const files = get().files;
+    const images = files.filter((f) => f.domain === "raster");
+    if (enabled && images.length < 2) return;
+    set((s) => ({
+      imageMerge: {
+        ...s.imageMerge,
+        enabled,
+        target: enabled ? imageMergeTarget(files) : s.imageMerge.target,
+        count: enabled ? images.length : 0,
+      },
+      concat: enabled
+        ? { ...s.concat, enabled: false, job: null, count: 0 }
+        : s.concat,
+    }));
+  },
+
+  setImageMergeTarget: (mime) =>
+    set((s) => ({ imageMerge: { ...s.imageMerge, target: mime } })),
 
   cancelJob: async (id) => {
     await api().cancel(id).catch(() => false);
@@ -373,14 +466,21 @@ export const useStore = create<State>((set, get) => ({
         s.concat.job && s.concat.job.id === job.id
           ? { ...s.concat, job: { ...s.concat.job, ...job } }
           : s.concat;
+      const imageMerge =
+        s.imageMerge.job && s.imageMerge.job.id === job.id
+          ? { ...s.imageMerge, job: { ...s.imageMerge.job, ...job } }
+          : s.imageMerge;
       const active =
         files.some(
           (f) =>
             f.job && (f.job.state === "running" || f.job.state === "pending"),
         ) ||
         (concat.job &&
-          (concat.job.state === "running" || concat.job.state === "pending"));
-      return { files, concat, running: !!active, recent };
+          (concat.job.state === "running" || concat.job.state === "pending")) ||
+        (imageMerge.job &&
+          (imageMerge.job.state === "running" ||
+            imageMerge.job.state === "pending"));
+      return { files, concat, imageMerge, running: !!active, recent };
     });
   },
 
