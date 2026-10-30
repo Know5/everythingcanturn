@@ -83,6 +83,29 @@ def cmd_convert(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir) if args.out_dir else None
     single_out = Path(args.output) if args.output else None
 
+    if getattr(args, "concat", False):
+        if len(sources) < 2:
+            print("concat 至少需要两个源文件", file=sys.stderr)
+            return 2
+        from .plugins.media import concat_media
+
+        try:
+            res = concat_media(
+                sources,
+                args.target,
+                out_path=single_out,
+                out_dir=out_dir,
+                options=overrides,
+                preset=args.preset,
+                overwrite=args.overwrite,
+                progress=None if args.quiet else _progress_printer(),
+            )
+        except ConversionError as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            return 1
+        _report(sources[0], res, quiet=args.quiet)
+        return 0
+
     # 单文件 + -o 走直接路径，能精确控制输出文件名
     if single_out is not None and len(sources) == 1:
         from .pipeline import convert_file
@@ -702,6 +725,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--ocr-dpi",
         type=int,
         help="扫描件 OCR 的渲染分辨率，默认 300",
+    )
+    c.add_argument(
+        "--concat",
+        action="store_true",
+        help="把多个源文件按顺序拼接成一个音视频输出",
     )
     c.add_argument("--overwrite", action="store_true", help="允许覆盖已存在的文件")
     c.add_argument("--quiet", action="store_true", help="只输出产物路径")

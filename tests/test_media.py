@@ -369,3 +369,42 @@ def test_analyze_rejects_non_media(tmp_path):
     junk.write_bytes(b"definitely not a video" * 50)
     with pytest.raises(ConversionError):
         ffmpeg.analyze(Resource(media_type="video/mp4", path=junk), tmp_path)
+
+
+def test_concat_two_clips(media, tmp_path):
+    """同编码文件应无损拼接，时长相加。"""
+    from convcore.plugins.media import concat_media
+
+    out = tmp_path / "joined.mp4"
+    res = concat_media(
+        [media["mkv_h264"], media["mkv_h264"]],
+        "mp4",
+        out_path=out,
+        overwrite=True,
+    )
+    assert out.is_file() and out.stat().st_size > 0
+    assert res.outputs[0].path == out
+
+    probe = companion("ffmpeg", "ffprobe")
+    duration = subprocess.run(
+        [
+            str(probe), "-v", "error", "-show_entries", "format=duration",
+            "-of", "csv=p=0", str(out),
+        ],
+        capture_output=True, text=True, timeout=60, check=True,
+    ).stdout.strip()
+    assert float(duration) == pytest.approx(4.0, abs=0.5)
+
+
+def test_concat_mixed_codecs_falls_back_and_marks_lossy(media, tmp_path):
+    """编码不同的源无法直接 concat copy，应回退重编码并如实标有损。"""
+    from convcore.plugins.media import concat_media
+
+    res = concat_media(
+        [media["mkv_h264"], media["webm_vp9"]],
+        "mp4",
+        out_path=tmp_path / "mixed.mp4",
+        overwrite=True,
+    )
+    assert res.loss is LossTier.LOSSY
+    assert any("转码" in w for w in res.warnings), res.warnings

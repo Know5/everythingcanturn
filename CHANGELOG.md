@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **音视频拼接**：`convcore convert a.mp4 b.mp4 -t mp4 --concat -o joined.mp4`，
+  或调用 `convcore.plugins.media.concat_media`。同编码走 ffmpeg concat demuxer
+  的 `-c copy`，不重编码；编码/流布局不一致时自动回退到 H.264/AAC 中间文件。
+
 ### Changed
 - **桌面端界面重写**：React 18 + TypeScript + Ant Design 5 + Vite，源码在 `ui/`，
   产物落到 `convcore/webui/static/gui/`，由 `convcore.spec` 原有的 `datas` 自动收集。

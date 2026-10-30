@@ -6,7 +6,7 @@
 
 ## 一、测试覆盖率短板
 
-本机全依赖环境最近一次全量统计：**80%**（7578 语句，1494 未覆盖；390 passed / 4 skipped）。
+本机全依赖环境最近一次全量统计：约 **80%**（392 passed / 4 skipped）。
 低于 85% 的主要模块：
 
 | 模块 | 覆盖率 | 原因 |
@@ -40,8 +40,10 @@
    `formats.py` 明确留言"JPXL 留在表外：无插件实现"。要支持需引入
    `pillow-jxl-plugin` 并加回格式表。
 
-3. **音视频多文件合并（concat）未支持**
-   `media.py:parse` 里 `len(resources) > 1` 直接抛错，注释写明"后续会加 concat 支持"。
+3. ~~**音视频多文件合并（concat）未支持**~~ **已支持（2026-10-30）**：
+   CLI `--concat` 与 `plugins.media.concat_media`。同编码走 ffmpeg concat demuxer
+   的 `-c copy`（无损），编码/流布局不一致时回退到 H.264/AAC 中间文件再转换。
+   遗留：GUI 尚未暴露 concat；混合分辨率/帧率会按回退重编码处理。
 
 4. ~~**扫描件 OCR 未集成**~~ **已集成（2026-10-30，可选 Tesseract）**：
    扫描 PDF / 图片可 OCR → Markdown / Word / 纯文本。需要 `pip install -e ".[ocr]"`
