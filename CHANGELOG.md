@@ -8,8 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **PDF→Word 页眉页脚**：跨页重复的页眉/页脚从正文段落搬进 Word 的
-  header/footer，减少编辑时反复碰到重复行；单页文档不搬，避免误伤标题
+- **PDF→Word 页眉页脚与页码**：跨页重复的页眉/页脚从正文段落搬进 Word 的
+  header/footer；页脚/页眉页码转为 Word PAGE 域，不再留静态数字；单页文档不搬，
+  避免误伤标题
+- **PDF→Word 跨页表格**：相邻表格列数、表头一致且中间只有分页/分节/表外残留行时
+  合并为一张，重复表头只保留一次；表外最后一行会按制表符补回表内
 - **Excel 保真**：XLSX→XLSX 保留公式文本（即使源文件没有缓存计算结果），
   写回时给日期/时间单元格设置 Excel 数字格式；CSV 日期输出不再带无意义的 `00:00:00`
 - **JPEG XL（可选）**：`pip install -e ".[jxl]"` 后通过 Pillow 插件读写 `.jxl`；

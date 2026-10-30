@@ -431,3 +431,59 @@ def test_pdf_to_word_moves_repeated_header_footer(tmp_path):
     assert "ACME Report" not in body
     assert "Confidential" not in body
     assert any("页眉页脚" in w for w in res.warnings)
+
+
+def test_pdf_to_word_page_numbers_become_page_field(tmp_path):
+    """页脚页码应变成 Word PAGE 域，正文里不再留静态页码。"""
+    import pymupdf
+    from docx.oxml.ns import qn
+
+    src = tmp_path / "page-numbers.pdf"
+    doc = pymupdf.open()
+    for i in range(3):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((60, 30), "ACME Report", fontsize=10)
+        page.insert_text((60, 812), f"Page {i + 1}", fontsize=9)
+        page.insert_text((60, 80), f"Section {i + 1}", fontsize=16)
+    doc.save(src)
+    doc.close()
+
+    res = convert_file(src, "docx", out_dir=tmp_path, overwrite=True)
+    d = _docx(res.outputs[0].path)
+    footer = d.sections[0].footer.paragraphs[0]
+    assert any("PAGE" in (x.text or "") for x in footer._p.iter(qn("w:instrText")))
+    body = "\n".join(p.text for p in d.paragraphs)
+    assert "Page 1" not in body
+    assert any("页码已转为 PAGE 域" in w for w in res.warnings)
+
+
+def test_pdf_to_word_merges_split_table(tmp_path):
+    """跨页表格应合并成一张，重复表头只留一次，行数不丢。"""
+    import pymupdf
+
+    src = tmp_path / "split-table.pdf"
+    doc = pymupdf.open()
+    xs = [60, 160, 260, 360]
+    for pi in range(2):
+        page = doc.new_page(width=595, height=842)
+        y = 60
+        page.draw_line((60, y), (500, y), color=(0.4, 0.4, 0.4), width=0.7)
+        for x, value in zip(xs, ["Name", "Q1", "Q2", "Q3"]):
+            page.insert_text((x + 4, y + 16), value, fontsize=10)
+        for r in range(12):
+            y += 24
+            page.draw_line((60, y), (500, y), color=(0.4, 0.4, 0.4), width=0.7)
+            for x, value in zip(xs, [f"row{pi * 12 + r + 1}", r, r + 1, r + 2]):
+                page.insert_text((x + 4, y + 16), str(value), fontsize=10)
+        for x in xs:
+            page.draw_line((x, 60), (x, y), color=(0.4, 0.4, 0.4), width=0.7)
+    doc.save(src)
+    doc.close()
+
+    res = convert_file(src, "docx", out_dir=tmp_path, overwrite=True)
+    d = _docx(res.outputs[0].path)
+    assert len(d.tables) == 1
+    assert len(d.tables[0].rows) == 25  # 表头 + 24 行
+    assert [c.text for c in d.tables[0].rows[0].cells] == ["Name", "Q1", "Q2", "Q3"]
+    assert [c.text for c in d.tables[0].rows[-1].cells][0] == "row24"
+    assert any("跨页表格" in w for w in res.warnings)

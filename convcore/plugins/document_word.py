@@ -180,6 +180,7 @@ class PdfToWord:
         self._apply_header_footer(
             dst, src, indices, pol, options.get("password")
         )
+        self._merge_split_tables(dst, pol)
 
         if options.get("review_marks", True):
             self._annotate(dst, scores, ir, pol)
@@ -254,6 +255,70 @@ class PdfToWord:
 
         return pick(top), pick(bottom)
 
+    def _page_number_info(
+        self, src: Path, indices: list[int], password: str | None = None
+    ) -> tuple[str | None, set[str]]:
+        """识别页边距里的页码，返回 (位置, 每页原文)。"""
+        import re
+
+        import pymupdf
+
+        patterns = (
+            re.compile(r"^\d{1,4}$"),
+            re.compile(r"^page\s+\d{1,4}$", re.IGNORECASE),
+            re.compile(r"^\d{1,4}\s*/\s*\d{1,4}$"),
+            re.compile(r"^\d{1,4}\s+of\s+\d{1,4}$", re.IGNORECASE),
+            re.compile(r"^-\s*\d{1,4}\s*-$"),
+            re.compile(r"^第\s*\d{1,4}\s*页$"),
+        )
+        found: dict[str, int] = {"top": 0, "bottom": 0}
+        texts: set[str] = set()
+        with pymupdf.open(src) as doc:
+            if doc.needs_pass and password:
+                doc.authenticate(password)
+            for index in indices:
+                page = doc[index]
+                height = float(page.rect.height)
+                for block in page.get_text("blocks"):
+                    if len(block) < 7 or block[6] != 0:
+                        continue
+                    text = re.sub(r"\s+", " ", block[4] or "").strip()
+                    if not text or not any(p.match(text) for p in patterns):
+                        continue
+                    y0, y1 = float(block[1]), float(block[3])
+                    where = "top" if y1 < 55 else ("bottom" if y0 > height - 55 else None)
+                    if where:
+                        found[where] += 1
+                        texts.add(text)
+
+        where = max(found, key=found.get)
+        if found[where] < max(2, (len(indices) + 1) // 2):
+            return None, set()
+        return where, texts
+
+    @staticmethod
+    def _add_page_field(paragraph) -> None:
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        run = paragraph.add_run()
+        begin = OxmlElement("w:fldChar")
+        begin.set(qn("w:fldCharType"), "begin")
+        instr = OxmlElement("w:instrText")
+        instr.set(qn("xml:space"), "preserve")
+        instr.text = " PAGE "
+        sep = OxmlElement("w:fldChar")
+        sep.set(qn("w:fldCharType"), "separate")
+        text = OxmlElement("w:t")
+        text.text = "1"
+        end = OxmlElement("w:fldChar")
+        end.set(qn("w:fldCharType"), "end")
+        run._r.append(begin)
+        run._r.append(instr)
+        run._r.append(sep)
+        run._r.append(text)
+        run._r.append(end)
+
     def _apply_header_footer(
         self,
         docx_path: Path,
@@ -273,14 +338,15 @@ class PdfToWord:
             import docx
 
             headers, footers = self._repeated_margin_text(src, indices, password)
-            if not headers and not footers:
+            page_where, page_texts = self._page_number_info(src, indices, password)
+            if not headers and not footers and not page_texts:
                 return
 
             doc = docx.Document(str(docx_path))
             targets = {
                 re.sub(r"\s+", " ", (t or "")).strip().lower()
                 for t in headers + footers
-            }
+            } | {t.lower() for t in page_texts}
             removed = 0
             for paragraph in list(doc.paragraphs):
                 key = re.sub(r"\s+", " ", paragraph.text or "").strip().lower()
@@ -305,21 +371,196 @@ class PdfToWord:
                     fp.text = "  ·  ".join(footers)
                     for run in fp.runs:
                         run.font.size = Pt(8)
+                if page_where == "top":
+                    section.header.is_linked_to_previous = False
+                    hp = section.header.paragraphs[0]
+                    if hp.text:
+                        hp.add_run("  ·  ")
+                    self._add_page_field(hp)
+                elif page_where == "bottom":
+                    section.footer.is_linked_to_previous = False
+                    fp = section.footer.paragraphs[0]
+                    if fp.text:
+                        fp.add_run("  ·  ")
+                    self._add_page_field(fp)
 
-            if removed or headers or footers:
+            if removed or headers or footers or page_texts:
                 doc.save(str(docx_path))
                 bits = []
                 if headers:
                     bits.append(f"页眉「{headers[0]}」")
                 if footers:
                     bits.append(f"页脚「{footers[0]}」")
-                pol.note(
-                    "页眉页脚",
-                    Strategy.APPROXIMATE,
-                    "已把跨页重复的 " + "、".join(bits) + " 搬进 Word 页眉/页脚",
-                )
+                msg = ""
+                if bits:
+                    msg = "已把跨页重复的 " + "、".join(bits) + " 搬进 Word 页眉/页脚"
+                if page_texts:
+                    msg += ("；" if msg else "") + "页码已转为 PAGE 域"
+                if msg:
+                    pol.note("页眉页脚", Strategy.APPROXIMATE, msg)
         except Exception:
             # 页眉页脚是增强项；失败不能破坏已生成的文档
+            pass
+
+    def _merge_split_tables(self, docx_path: Path, pol: Policy) -> None:
+        """合并跨页拆分、表头重复的相邻 Word 表格。
+
+        pdf2docx 通常把跨页表格拆成两张表，并在新页重复表头。这里只在
+        列数一致、表头文本一致、且中间只有空段落/分页/分节符（或上一行残留）
+        时合并，避免把文档里两个独立的同构表格误接在一起。
+        """
+        try:
+            import re
+            from copy import deepcopy
+
+            import docx
+            from docx.oxml import OxmlElement
+            from docx.oxml.ns import qn
+
+            doc = docx.Document(str(docx_path))
+            body = doc.element.body
+
+            def norm(text: str) -> str:
+                return re.sub(r"\s+", " ", text or "").strip()
+
+            def compact(text: str) -> str:
+                return re.sub(r"\s+", "", text or "")
+
+            def rows(tbl):
+                return tbl.findall(qn("w:tr"))
+
+            def row_texts(tr) -> list[str]:
+                return [
+                    norm("".join(tc.itertext()))
+                    for tc in tr.findall(qn("w:tc"))
+                ]
+
+            merged = 0
+            while True:
+                children = list(body)
+                tables = [c for c in children if c.tag == qn("w:tbl")]
+                changed = False
+                for ai in range(len(tables) - 1):
+                    a, b = tables[ai], tables[ai + 1]
+                    ra, rb = rows(a), rows(b)
+                    if len(ra) < 2 or len(rb) < 2:
+                        continue
+                    if len(row_texts(ra[0])) != len(row_texts(rb[0])):
+                        continue
+                    if row_texts(ra[0]) != row_texts(rb[0]):
+                        continue
+
+                    start = children.index(a)
+                    end = children.index(b)
+                    between = children[start + 1:end]
+                    last_row_compact = compact("".join(row_texts(ra[-1])))
+                    ncols = len(row_texts(ra[0]))
+
+                    def artifact_cells(p) -> list[str] | None:
+                        """pdf2docx 有时把表格最后一行留在表外，按制表符还原。"""
+                        import re as _re
+
+                        runs = [
+                            "".join(r.itertext())
+                            for r in p.findall(".//" + qn("w:r"))
+                        ]
+                        parts: list[str] = []
+                        for run in runs:
+                            parts.extend(norm(x) for x in run.split("\t") if norm(x))
+                        if len(parts) != ncols:
+                            return None
+
+                        def dedupe(s: str) -> str:
+                            words = s.split()
+                            if len(words) >= 4 and len(words) % 2 == 0:
+                                half = len(words) // 2
+                                if words[:half] == words[half:]:
+                                    return " ".join(words[:half])
+                            comp = _re.sub(r"\s+", "", s)
+                            if len(comp) >= 2 and len(comp) % 2 == 0:
+                                half = len(comp) // 2
+                                if comp[:half] == comp[half:]:
+                                    return comp[:half]
+                            return s
+
+                        cells = [dedupe(p) for p in parts]
+                        return cells if all(cells) else None
+
+                    def append_cells(dst, cells: list[str]) -> None:
+                        tr = OxmlElement("w:tr")
+                        for value in cells:
+                            tc = OxmlElement("w:tc")
+                            p = OxmlElement("w:p")
+                            r = OxmlElement("w:r")
+                            t = OxmlElement("w:t")
+                            t.text = value
+                            r.append(t)
+                            p.append(r)
+                            tc.append(p)
+                            tr.append(tc)
+                        dst.append(tr)
+
+                    allowed = True
+                    artifact_rows: list[list[str]] = []
+                    for child in between:
+                        if child.tag != qn("w:p"):
+                            allowed = False
+                            break
+                        text = norm("".join(child.itertext()))
+                        if not text:
+                            continue
+                        if compact(text) == last_row_compact:
+                            continue
+                        cells = artifact_cells(child)
+                        if cells is None:
+                            allowed = False
+                            break
+                        artifact_rows.append(cells)
+                    if not allowed:
+                        continue
+
+                    # 把表外残留的最后一行补回表内，再追加下一页的行
+                    for cells in artifact_rows:
+                        append_cells(a, cells)
+                    for tr in rb[1:]:
+                        a.append(deepcopy(tr))
+
+                    # 第二张表末尾也可能有同一类残留行
+                    after = list(body)[list(body).index(b) + 1:]
+                    trailing: list[Any] = []
+                    for child in after:
+                        if child.tag != qn("w:p"):
+                            break
+                        text = norm("".join(child.itertext()))
+                        if not text:
+                            trailing.append(child)
+                            continue
+                        cells = artifact_cells(child)
+                        if cells is None:
+                            break
+                        append_cells(a, cells)
+                        trailing.append(child)
+
+                    for child in between:
+                        body.remove(child)
+                    for child in trailing:
+                        body.remove(child)
+                    body.remove(b)
+                    merged += 1
+                    changed = True
+                    break
+                if not changed:
+                    break
+
+            if merged:
+                doc.save(str(docx_path))
+                pol.note(
+                    "跨页表格",
+                    Strategy.EMULATE,
+                    f"已合并 {merged} 处跨页拆分的表格；请核对表头和行顺序",
+                )
+        except Exception:
+            # 表格合并是增强项；失败不能破坏已生成的文档
             pass
 
     def _heading_outline(
