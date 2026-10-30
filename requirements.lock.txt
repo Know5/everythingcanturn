@@ -15,7 +15,8 @@ inflate64==1.0.4         # py7zr 依赖
 lxml==6.1.2
 mistune==3.3.4           # Markdown 渲染
 multivolumefile==0.2.3   # py7zr 依赖
-numpy==2.5.2
+numpy==2.5.2; python_version >= "3.12"
+numpy==2.4.6; python_version < "3.12"
 opencv-python-headless==5.0.0.93  # pdf2docx 版面检测
 openpyxl==3.1.5
 pdf2docx==0.5.13         # PDF→Word 结构化转换
@@ -24,7 +25,8 @@ pillow_heif==1.6.0       # HEIC（iPhone 照片）
 proxy_tools==0.1.0       # pywebview 依赖
 psd-tools==1.18.0        # Photoshop 读取
 psutil==7.2.2            # 子进程资源管理
-puremagic==2.2.0         # 内容嗅探
+puremagic==2.2.0; python_version >= "3.12"  # 内容嗅探；2.x 要求 3.12+
+puremagic==1.30; python_version < "3.12"
 py7zr==1.1.3
 pybcj==1.0.8             # 7z 解码器
 pycparser==3.0           # cffi 依赖
@@ -57,3 +59,5 @@ pyarrow==25.0.1          # Parquet 读写 + 跨域桥的类型推断
 
 # 测试工具补全（CI 用）
 coverage==7.16.0
+reportlab==5.0.1         # 测试 PDF 合成（dev）
+pytest-cov==7.1.0        # CI --cov

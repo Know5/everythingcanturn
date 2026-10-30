@@ -39,7 +39,7 @@ jobs:
         # 与 ci.yml 相同的从零安装；pyinstaller 钉在 requirements.lock.txt 的版本
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[all,dev]" pyinstaller==6.16.0
+          python -m pip install -e ".[all,dev]" pyinstaller==6.16.0 -c requirements.lock.txt
 
       - name: Build executable
         run: python -m PyInstaller convcore.spec

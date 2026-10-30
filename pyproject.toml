@@ -26,7 +26,8 @@ vector = [
     "vtracer>=0.6",
 ]
 document = [
-    "pymupdf>=1.24",
+    # PyMuPDF 2.0 改了 find_tables/版面行为；先锁 1.x，等适配完成再放开。
+    "pymupdf>=1.24,<2",
     "pypdf>=5.0",
     "python-docx>=1.1",
     "mistune>=3.0",
@@ -64,7 +65,7 @@ all = [
     "rawpy>=0.23",
     "resvg-py>=0.5",
     "vtracer>=0.6",
-    "pymupdf>=1.24",
+    "pymupdf>=1.24,<2",
     "pypdf>=5.0",
     "python-docx>=1.1",
     "mistune>=3.0",

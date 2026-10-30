@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   样本和产物只写入项目目录（`benchmarks/samples`、`benchmarks/work`，均不入库）
 
 ### Fixed
+- CI 一直红：`pip install .[all,dev]` 会拉到 PyMuPDF 2.0 / Pillow 13 / ReportLab 5.1，
+  其中 PyMuPDF 2.0 的 `find_tables` 让 PDF→Markdown 表格丢失，渲染基线也变慢。
+  CI/release 改为用 `requirements.lock.txt` 约束依赖，并把 PyMuPDF 锁在 1.x；
+  锁文件为 Python 3.11 补了 numpy/puremagic 环境标记
 - 拖入文件被 WebView2 当成导航目标打开：全局 `dragover`/`drop` 的 `preventDefault`
   现在由 `main.tsx` 强制的 `bridge` 模块注册（应用级不变量，不再依赖某个组件恰好引用）
 - 桌面窗口加载 file:// 界面时不能带查询串：.NET `Uri` 会把 `?` 转义成 `%3F`，

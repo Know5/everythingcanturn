@@ -43,10 +43,12 @@ jobs:
 
       - name: Install dependencies
         # 从干净环境安装：验证 pyproject extras 的声明完整性
-        # （评审 P0-1 的回归防线——漏声明会在这一步直接失败）
+        # （评审 P0-1 的回归防线——漏声明会在这一步直接失败）。
+        # 用 requirements.lock.txt 约束版本：PyMuPDF 2.0 / Pillow 13 / ReportLab 5.1
+        # 都曾让测试在 CI 上飘（表格检测、渲染基线），不能让 CI 随机拉最新版。
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[all,dev]"
+          python -m pip install -e ".[all,dev]" -c requirements.lock.txt
 
       - name: Install FFmpeg engine
         # media 域测试需要 ffmpeg。走项目自己的引擎安装通道，
