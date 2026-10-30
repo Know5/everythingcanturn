@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 文件卡片支持图片/PDF 缩略图与拖拽排序；空状态显示最近完成记录
   （localStorage，可打开/定位/重新加入）；新增 `Ctrl+O` 添加文件、
   `Ctrl+Enter` 开始转换与卡片进场动效
+- 应用图标统一使用 `convcore/assets/convcore.ico`（窗口、exe、favicon、
+  顶部品牌）；图标源文件是 512px PNG，打包时生成多尺寸 ICO
 - `convcore gui` 新增 `--ui-dev URL`，可指向 Vite 开发服务器做前端热更新
 - Windows 标题栏改为跟随暗色（`DwmSetWindowAttribute`），失败时静默退化为系统默认
 - 桌面端与浏览器端的状态机合并到 `convcore/uiservice.py`：`inspect`、逐文件任务、

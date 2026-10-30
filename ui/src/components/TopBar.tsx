@@ -3,8 +3,8 @@ import {
   QuestionCircleOutlined,
   SafetyCertificateOutlined,
   ToolFilled,
-  ThunderboltFilled,
 } from "@ant-design/icons";
+import iconUrl from "../assets/icon.png";
 import { useStore } from "../store";
 import { radix } from "../theme";
 
@@ -21,7 +21,7 @@ export function TopBar() {
     <header className="topbar">
       <div className="brand">
         <div className="brand-mark">
-          <ThunderboltFilled />
+          <img src={iconUrl} alt="" />
         </div>
         <div className="brand-copy">
           <span className="brand-name">convcore</span>

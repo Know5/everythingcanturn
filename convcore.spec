@@ -62,6 +62,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ("convcore/webui/static", "convcore/webui/static"),
+        ("convcore/assets", "convcore/assets"),
     ],
     hiddenimports=[
         *PLUGINS,
@@ -103,6 +104,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,  # 桌面应用，不弹黑窗
+    icon="convcore/assets/convcore.ico",
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -124,6 +126,7 @@ exe_cli = EXE(
     strip=False,
     upx=False,
     console=True,
+    icon="convcore/assets/convcore.ico",
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

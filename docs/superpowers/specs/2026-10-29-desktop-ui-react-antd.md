@@ -311,3 +311,6 @@ P5 删除旧前端后，实际窗口暴露了一个更基础的问题：界面�
 - 动效：卡片/空态/侧栏在 `prefers-reduced-motion: no-preference` 下淡入上移。
 - 标题栏仍是原生深色窗口边框：无边框方案会让 WinForms 窗口失去边缘缩放，
   暂不为视觉效果牺牲桌面窗口的基本操作。
+
+- 图标：用户提供的 512px 彩色文件转换图标，圆角裁透明后生成多尺寸
+  `convcore/assets/convcore.ico`，用于 exe、窗口和 favicon；顶部品牌同步使用同一图。

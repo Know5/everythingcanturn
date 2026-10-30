@@ -101,6 +101,7 @@ packages = ["convcore"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "convcore/webui/static" = "convcore/webui/static"
+"convcore/assets" = "convcore/assets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

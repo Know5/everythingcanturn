@@ -269,4 +269,8 @@ def run(*, debug: bool = False, dev_url: str | None = None) -> None:
 
     window.events.loaded += dark_titlebar
 
-    webview.start(debug=debug, private_mode=False)
+    webview.start(
+        debug=debug,
+        private_mode=False,
+        icon=str(resource("convcore", "assets", "convcore.ico")),
+    )
