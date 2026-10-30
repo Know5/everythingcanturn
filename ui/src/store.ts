@@ -54,6 +54,13 @@ export interface FormatsGroup {
   reaches: string[];
 }
 
+export interface ConcatState {
+  enabled: boolean;
+  target: string | null;
+  job: Job | null;
+  count: number;
+}
+
 interface PickerState {
   /** null=关闭；'*'=批量；其余为文件 path */
   target: string | null;
@@ -69,6 +76,7 @@ interface State {
   dragOver: boolean;
   adding: boolean;
   picker: PickerState;
+  concat: ConcatState;
   enginesOpen: boolean;
   helpOpen: boolean;
   formats: FormatsGroup[] | null;
@@ -85,6 +93,9 @@ interface State {
   openPicker: (target: string | null) => void;
   chooseTarget: (mime: string) => void;
   run: () => Promise<void>;
+  runConcat: () => Promise<void>;
+  toggleConcat: (enabled: boolean) => void;
+  setConcatTarget: (mime: string) => void;
   cancelJob: (id: string) => Promise<void>;
   applyJob: (job: Job) => void;
   setOutDir: (dir: string | null) => void;
@@ -108,6 +119,15 @@ export function targetOf(file: FileRow, mime: string | null): TargetItem | null 
   return null;
 }
 
+function concatTarget(files: FileRow[]): string | null {
+  const first = files.find((f) => f.domain === "media");
+  if (!first) return null;
+  const media = first.groups.find((g) => g.key === "media");
+  if (!media?.items.length) return null;
+  const pref = first.mime.startsWith("video/") ? "video/mp4" : "audio/mpeg";
+  return media.items.find((i) => i.mime === pref)?.mime ?? media.items[0].mime;
+}
+
 export const useStore = create<State>((set, get) => ({
   ready: false,
   bootError: null,
@@ -118,6 +138,7 @@ export const useStore = create<State>((set, get) => ({
   dragOver: false,
   adding: false,
   picker: { target: null },
+  concat: { enabled: false, target: null, job: null, count: 0 },
   enginesOpen: false,
   helpOpen: false,
   formats: null,
@@ -172,7 +193,17 @@ export const useStore = create<State>((set, get) => ({
   },
 
   removeFile: (path) =>
-    set((s) => ({ files: s.files.filter((f) => f.path !== path) })),
+    set((s) => {
+      const files = s.files.filter((f) => f.path !== path);
+      const media = files.filter((f) => f.domain === "media");
+      return {
+        files,
+        concat:
+          media.length < 2
+            ? { ...s.concat, enabled: false, target: null, count: 0 }
+            : s.concat,
+      };
+    }),
 
   moveFile: (from, to) =>
     set((s) => {
@@ -193,7 +224,18 @@ export const useStore = create<State>((set, get) => ({
     await Promise.all(
       active.map((f) => api().cancel(f.job!.id).catch(() => false)),
     );
-    set({ files: [], running: false });
+    const concatJob = get().concat.job;
+    if (
+      concatJob &&
+      (concatJob.state === "running" || concatJob.state === "pending")
+    ) {
+      await api().cancel(concatJob.id).catch(() => false);
+    }
+    set({
+      files: [],
+      running: false,
+      concat: { enabled: false, target: null, job: null, count: 0 },
+    });
   },
 
   setDragOver: (v) => set({ dragOver: v }),
@@ -256,6 +298,56 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  runConcat: async () => {
+    const { files, preset, running, ready: isReady, concat } = get();
+    if (running || !isReady || !concat.enabled || !concat.target) return;
+    const media = files.filter((f) => f.domain === "media");
+    if (media.length < 2) return;
+    let ids: string[];
+    try {
+      ids = await api().concat(
+        media.map((f) => f.path),
+        concat.target,
+        preset || null,
+        {},
+      );
+    } catch (e) {
+      set({ bootError: `启动合并失败：${e}` });
+      return;
+    }
+    set({
+      running: true,
+      concat: {
+        ...concat,
+        job: {
+          id: ids[0],
+          name: "音视频合并",
+          count: media.length,
+          state: "pending",
+          progress: 0,
+          step: "排队中",
+        } as Job,
+      },
+    });
+  },
+
+  toggleConcat: (enabled) => {
+    const files = get().files;
+    const media = files.filter((f) => f.domain === "media");
+    if (enabled && media.length < 2) return;
+    set((s) => ({
+      concat: {
+        ...s.concat,
+        enabled,
+        target: enabled ? concatTarget(files) : s.concat.target,
+        count: enabled ? media.length : 0,
+      },
+    }));
+  },
+
+  setConcatTarget: (mime) =>
+    set((s) => ({ concat: { ...s.concat, target: mime } })),
+
   cancelJob: async (id) => {
     await api().cancel(id).catch(() => false);
   },
@@ -277,10 +369,18 @@ export const useStore = create<State>((set, get) => ({
       const files = s.files.map((f) =>
         f.job && f.job.id === job.id ? { ...f, job: { ...f.job, ...job } } : f,
       );
-      const active = files.some(
-        (f) => f.job && (f.job.state === "running" || f.job.state === "pending"),
-      );
-      return { files, running: active, recent };
+      const concat =
+        s.concat.job && s.concat.job.id === job.id
+          ? { ...s.concat, job: { ...s.concat.job, ...job } }
+          : s.concat;
+      const active =
+        files.some(
+          (f) =>
+            f.job && (f.job.state === "running" || f.job.state === "pending"),
+        ) ||
+        (concat.job &&
+          (concat.job.state === "running" || concat.job.state === "pending"));
+      return { files, concat, running: !!active, recent };
     });
   },
 

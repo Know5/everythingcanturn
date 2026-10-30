@@ -114,6 +114,7 @@ def test_public_methods_are_the_intended_surface(api: Api) -> None:
         "clear_out_dir",
         "inspect",
         "convert",
+        "concat",
         "cancel",
         "cancel_all",
         "notify_drop",
@@ -401,3 +402,38 @@ def test_window_controls_delegate(api: Api) -> None:
     assert win.maximized
     api.window_close()
     assert win.destroyed
+
+
+def test_concat_starts_one_job(api: Api, tmp_path) -> None:
+    """音视频合并只产生一个任务，输出一个文件。"""
+    import subprocess
+
+    from convcore.engines.probe import ENGINES, probe_one
+
+    spec = next(s for s in ENGINES if s.key == "ffmpeg")
+    info = probe_one(spec)
+    if not info.available:
+        pytest.skip("需要 ffmpeg")
+
+    assert info.path is not None
+    clips = []
+    for i, color in enumerate(("red", "blue")):
+        clip = tmp_path / f"{i}.mp4"
+        subprocess.run(
+            [
+                str(info.path), "-y", "-f", "lavfi", "-i",
+                f"color=c={color}:s=160x120:d=1:r=10",
+                "-c:v", "libx264", "-preset", "ultrafast", str(clip),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+        clips.append(str(clip))
+
+    ids = api.concat(clips, "mp4", None, {})
+    assert len(ids) == 1
+    job = _wait(api, ids[0])
+    assert job["state"] == "done", job
+    assert job["count"] == 2
+    assert job["outName"].endswith(".mp4")

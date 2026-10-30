@@ -1422,3 +1422,53 @@ button:focus-visible,
     display: none;
   }
 }
+
+.concat-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.concat-toggle b {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.concat-toggle span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.concat-status {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: rgba(139, 123, 255, 0.06);
+  border: 1px solid rgba(139, 123, 255, 0.16);
+}
+
+.concat-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.concat-error {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--danger);
+  word-break: break-word;
+}

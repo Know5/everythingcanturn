@@ -428,6 +428,7 @@ class UiJob:
     overrides: dict[str, Any]
     out_dir: Path | None
     stem: str | None
+    sources: list[Path] = field(default_factory=list)
     src_size: int = 0
     state: str = "pending"
     progress: float = 0.0
@@ -449,6 +450,7 @@ class UiJob:
         return {
             "id": self.id,
             "name": self.source.name,
+            "count": len(self.sources) if self.sources else 1,
             "size": self.src_size,
             "srcSize": self.src_size,
             "target": self.target,
@@ -551,6 +553,52 @@ class UiService:
             ).start()
         return ids
 
+    def enqueue_concat(
+        self,
+        paths: list[str],
+        target: str,
+        preset: str | None = None,
+        opts: dict[str, Any] | None = None,
+        on_update: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[str]:
+        """把多个音视频文件合成一个任务。"""
+        sources = [Path(p).expanduser() for p in paths]
+        if len(sources) < 2:
+            raise ConversionError("合并至少需要两个文件")
+        for source in sources:
+            if not source.is_file():
+                raise ConversionError(f"文件不存在：{source}")
+        from .formats import resolve_target
+        from .formats import domain_of as _domain_of
+
+        target_mt = resolve_target(target)
+        if target_mt is None:
+            raise ConversionError(f"未知目标格式：{target}")
+        if _domain_of(target_mt) != "media":
+            raise ConversionError("合并目标必须是音视频格式")
+        for source in sources:
+            if _domain_of(self.converter.detect(source)) != "media":
+                raise ConversionError(f"不是音视频文件：{source.name}")
+
+        jid = secrets.token_hex(6)
+        with self.lock:
+            self._prune()
+            self.jobs[jid] = UiJob(
+                id=jid,
+                source=sources[0],
+                sources=sources,
+                target=target_mt,
+                preset=preset,
+                overrides=dict(opts or {}),
+                out_dir=self.out_dir,
+                stem=sources[0].stem,
+                src_size=sum(s.stat().st_size for s in sources),
+            )
+        threading.Thread(
+            target=self._run, args=(jid, on_update), daemon=True
+        ).start()
+        return [jid]
+
     def _run(
         self,
         jid: str,
@@ -582,17 +630,30 @@ class UiService:
             }
             overrides["_cancel"] = lambda: job._cancel.is_set()
 
-            res = convert_file(
-                job.source,
-                job.target,
-                out_dir=job.out_dir or job.source.parent,
-                preset=job.preset,
-                overrides=overrides,
-                overwrite=False,
-                progress=on_progress,
-                converter=Converter(),
-                stem=job.stem,
-            )
+            if len(job.sources) > 1:
+                from .plugins.media import concat_media
+
+                res = concat_media(
+                    job.sources,
+                    job.target,
+                    out_dir=job.out_dir or job.source.parent,
+                    preset=job.preset,
+                    options=overrides,
+                    overwrite=False,
+                    progress=on_progress,
+                )
+            else:
+                res = convert_file(
+                    job.source,
+                    job.target,
+                    out_dir=job.out_dir or job.source.parent,
+                    preset=job.preset,
+                    overrides=overrides,
+                    overwrite=False,
+                    progress=on_progress,
+                    converter=Converter(),
+                    stem=job.stem,
+                )
 
             if job._cancel.is_set():
                 push(state="cancelled", step="已取消")

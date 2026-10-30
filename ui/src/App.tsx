@@ -40,6 +40,8 @@ export default function App() {
   const applyJob = useStore((s) => s.applyJob);
   const clearAll = useStore((s) => s.clearAll);
   const run = useStore((s) => s.run);
+  const runConcat = useStore((s) => s.runConcat);
+  const concat = useStore((s) => s.concat);
   const running = useStore((s) => s.running);
 
   useEffect(() => {
@@ -94,7 +96,11 @@ export default function App() {
   const hasFiles = files.length > 0;
   const pending = files.filter((f) => !f.job || f.job.state === "pending").length;
   const notChosen = files.filter((f) => !f.chosen).length;
-  const canRun = ready && !running && pending > 0 && notChosen === 0;
+  const mediaCount = files.filter((f) => f.domain === "media").length;
+  const concatMode = concat.enabled && mediaCount >= 2;
+  const canRun = ready && !running && (
+    concatMode ? !!concat.target : pending > 0 && notChosen === 0
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -104,12 +110,12 @@ export default function App() {
         void pick();
       } else if (e.key === "Enter" && canRun) {
         e.preventDefault();
-        void run();
+        void (concatMode ? runConcat() : run());
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pick, canRun, run]);
+  }, [pick, canRun, concatMode, run, runConcat]);
 
   return (
     <div className="app-shell">

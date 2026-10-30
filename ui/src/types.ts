@@ -63,6 +63,7 @@ export type JobState = "pending" | "running" | "done" | "failed" | "cancelled";
 export interface Job {
   id: string;
   name?: string;
+  count?: number;
   state: JobState;
   progress?: number;
   step?: string;
@@ -88,6 +89,12 @@ export interface PywebviewApi {
   inspect(path: string): Promise<FileInfo & { error?: string }>;
   convert(
     items: { path: string; target: string }[],
+    preset: string | null,
+    opts: Record<string, unknown>,
+  ): Promise<string[]>;
+  concat(
+    paths: string[],
+    target: string,
     preset: string | null,
     opts: Record<string, unknown>,
   ): Promise<string[]>;

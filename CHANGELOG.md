@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **桌面端音视频合并**：队列中有两个以上音视频时，右侧面板可开启“按队列顺序拼接”，
+  选择输出格式后一次生成；复用 `concat_media` 的 COPY/统一转码策略
 - **DOCX 表格单元格图片**：解析时进入 DocTree；Markdown/HTML 表格和 DOCX 表格
   写侧都会保留，不再只处理正文图片
 - **EPUB 封面图**：解析 OPF 的 `cover-image`/`meta name="cover"`，把封面作为首图保留

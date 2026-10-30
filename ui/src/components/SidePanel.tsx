@@ -1,4 +1,4 @@
-import { Select, Tooltip } from "antd";
+import { Progress, Select, Switch, Tooltip } from "antd";
 import {
   CheckCircleOutlined,
   DownOutlined,
@@ -20,15 +20,33 @@ export function SidePanel() {
   const running = useStore((s) => s.running);
   const ready = useStore((s) => s.ready);
   const run = useStore((s) => s.run);
+  const runConcat = useStore((s) => s.runConcat);
+  const concat = useStore((s) => s.concat);
+  const toggleConcat = useStore((s) => s.toggleConcat);
+  const setConcatTarget = useStore((s) => s.setConcatTarget);
   const pickOutDir = useStore((s) => s.pickOutDir);
   const resetOutDir = useStore((s) => s.resetOutDir);
 
   const { pending, done, failed, lossy, notChosen } = summary(files);
   const total = files.reduce((n, f) => n + f.size, 0);
-  const canRun = ready && !running && pending > 0 && notChosen === 0;
+  const mediaFiles = files.filter((f) => f.domain === "media");
+  const concatMode = concat.enabled && mediaFiles.length >= 2;
+  const canRun = ready && !running && (
+    concatMode ? !!concat.target : pending > 0 && notChosen === 0
+  );
+  const concatOptions = mediaFiles[0]?.groups.find((g) => g.key === "media")?.items ?? [];
+  const concatItem = concatOptions.find((i) => i.mime === concat.target);
 
   const outputs = new Map<string, { label: string; ext: string; count: number }>();
+  if (concatMode && concatItem) {
+    outputs.set(concatItem.mime, {
+      label: concatItem.label,
+      ext: concatItem.ext,
+      count: 1,
+    });
+  }
   for (const f of files) {
+    if (concatMode) break;
     const t = targetOf(f, f.chosen);
     if (!t) continue;
     const row = outputs.get(t.mime);
@@ -123,6 +141,61 @@ export function SidePanel() {
 
         <div className="panel-divider" />
 
+        {mediaFiles.length >= 2 && (
+          <div className="panel-block">
+            <div className="panel-title">音视频合并</div>
+            <div className="concat-toggle">
+              <div>
+                <b>按队列顺序拼接</b>
+                <span>{mediaFiles.length} 个音视频文件</span>
+              </div>
+              <Switch
+                checked={concat.enabled}
+                onChange={(v) => toggleConcat(v)}
+                size="small"
+              />
+            </div>
+            {concat.enabled && (
+              <>
+                <Select
+                  value={concat.target ?? undefined}
+                  onChange={setConcatTarget}
+                  style={{ width: "100%" }}
+                  options={concatOptions.map((i) => ({
+                    value: i.mime,
+                    label: `${i.label} .${i.ext}`,
+                  }))}
+                  placeholder="选择合并后的格式"
+                />
+                <div className="soft-note" style={{ marginTop: 6 }}>
+                  同编码直接拼接；编码/分辨率不一致时自动统一转码。
+                </div>
+              </>
+            )}
+            {concat.job && (
+              <div className="concat-status">
+                <div className="concat-status-head">
+                  <span>{concat.job.step || "合并中"}</span>
+                  <span>{concat.job.count ?? mediaFiles.length} 个文件</span>
+                </div>
+                <Progress
+                  percent={Math.round((concat.job.progress ?? 0) * 100)}
+                  size="small"
+                  showInfo={false}
+                />
+                {concat.job.error && (
+                  <div className="concat-error">{concat.job.error}</div>
+                )}
+                {concat.job.outPath && (
+                  <div className="soft-note">{concat.job.outPath}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="panel-divider" />
+
         <div className="panel-block">
           <div className="panel-title">本次输出</div>
           <div className="output-list">
@@ -146,11 +219,19 @@ export function SidePanel() {
         <button
           className="primary-cta"
           disabled={!canRun}
-          onClick={() => void run()}
-          title="开始转换（Ctrl+Enter）"
+          onClick={() => void (concatMode ? runConcat() : run())}
+          title={concatMode ? "开始合并" : "开始转换（Ctrl+Enter）"}
         >
           <ThunderboltFilled />
-          {running ? "转换中…" : pending > 0 ? `开始转换 · ${pending}` : "开始转换"}
+          {running
+            ? concatMode
+              ? "合并中…"
+              : "转换中…"
+            : concatMode
+              ? `合并音视频 · ${mediaFiles.length}`
+              : pending > 0
+                ? `开始转换 · ${pending}`
+                : "开始转换"}
         </button>
         <div className="privacy-note">
           <SafetyCertificateOutlined />

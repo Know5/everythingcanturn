@@ -85,6 +85,18 @@ class Api:
             items, preset, opts, on_update=self._emit
         )
 
+    def concat(
+        self,
+        paths: list[str],
+        target: str,
+        preset: str | None,
+        opts: dict,
+    ) -> list[str]:
+        """按顺序合并多个音视频文件，返回一个任务 ID。"""
+        return self._service.enqueue_concat(
+            paths, target, preset, opts, on_update=self._emit
+        )
+
     def _emit(self, job: dict[str, Any]) -> None:
         """把任务状态推给前端。
 
