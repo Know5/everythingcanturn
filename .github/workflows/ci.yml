@@ -63,8 +63,14 @@ jobs:
         # media 域测试需要 ffmpeg。走项目自己的引擎安装通道，
         # 顺带验证 engines install 在干净机器上的真实可用性。
         # 503 是上游 CDN 问题，批处理里再包一层退避重试。
+        # 先看是否已有可用安装（缓存命中），已装就不再下载。
         shell: pwsh
         run: |
+          python -m convcore engines check ffmpeg
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "ffmpeg 已可用（缓存命中）"
+            exit 0
+          }
           for ($i = 1; $i -le 5; $i++) {
             python -m convcore engines install ffmpeg --accept-hash
             if ($LASTEXITCODE -eq 0) { exit 0 }
