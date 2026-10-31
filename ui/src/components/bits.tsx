@@ -40,7 +40,8 @@ export function EmptyDrop({ onClick, hot }: { onClick: () => void; hot: boolean 
       </div>
       <h2 className="empty-title">把文件拖到这里</h2>
       <p className="empty-sub">
-        图片、文档、音视频与压缩包。自动识别格式，只列出真正可达的目标。
+        图片、文档、音视频与压缩包。自动识别格式，只列出真正可达的目标；
+        多张图片或多段音视频可在队列里合并成一个输出。
       </p>
       <button
         className="empty-cta"
