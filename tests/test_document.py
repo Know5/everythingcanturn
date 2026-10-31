@@ -541,3 +541,37 @@ def test_pdf_to_word_moves_header_images(tmp_path):
         section.header.paragraphs[0]._p.findall(".//" + qn("a:blip"))
         for section in d.sections
     )
+
+
+def test_cross_page_table_merge_keeps_per_page_headers(tmp_path):
+    """跨页表格合并后，各页页眉仍应留在对应 section。"""
+    import pymupdf
+
+    src = tmp_path / "split-with-headers.pdf"
+    doc = pymupdf.open()
+    xs = [60, 160, 260, 360]
+    for pi, chapter in enumerate(("Chapter 1", "Chapter 2")):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((60, 30), chapter, fontsize=10)
+        y = 60
+        page.draw_line((60, y), (500, y), color=(0.4, 0.4, 0.4), width=0.7)
+        for x, value in zip(xs, ["Name", "Q1", "Q2", "Q3"]):
+            page.insert_text((x + 4, y + 16), value, fontsize=10)
+        for r in range(12):
+            y += 24
+            page.draw_line((60, y), (500, y), color=(0.4, 0.4, 0.4), width=0.7)
+            for x, value in zip(xs, [f"row{pi * 12 + r + 1}", r, r + 1, r + 2]):
+                page.insert_text((x + 4, y + 16), str(value), fontsize=10)
+        for x in xs:
+            page.draw_line((x, 60), (x, y), color=(0.4, 0.4, 0.4), width=0.7)
+    doc.save(src)
+    doc.close()
+
+    res = convert_file(src, "docx", out_dir=tmp_path, overwrite=True)
+    d = _docx(res.outputs[0].path)
+    assert len(d.tables) == 1
+    assert len(d.tables[0].rows) == 25
+    assert [s.header.paragraphs[0].text for s in d.sections] == [
+        "Chapter 1",
+        "Chapter 2",
+    ]

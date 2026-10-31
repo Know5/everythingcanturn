@@ -177,9 +177,10 @@ class PdfToWord:
         scores = [_score_page(ir.pages[i]) for i in indices]
         self._report(scores, indices, pol, options)
 
-        self._apply_header_footer(
-            dst, src, indices, pol, options.get("password")
-        )
+        margin_info = self._page_margin_info(src, indices, options.get("password"))
+        self._apply_header_footer(dst, margin_info, pol)
+        # 必须在页眉写完之后合并：合并会删掉表间的分节符，
+        # 先合并会导致后面的 section 跟着消失、逐页页眉全部丢光。
         self._merge_split_tables(dst, pol)
 
         if options.get("review_marks", True):
@@ -331,10 +332,8 @@ class PdfToWord:
     def _apply_header_footer(
         self,
         docx_path: Path,
-        src: Path,
-        indices: list[int],
+        infos: list[dict[str, Any]],
         pol: Policy,
-        password: str | None = None,
     ) -> None:
         """把每页页眉/页脚搬进对应 Word section，并把页码转成 PAGE 域。
 
@@ -342,7 +341,7 @@ class PdfToWord:
         页建立 header/footer 文本，再按 section 顺序映射。单页文档不搬，避免
         把正文标题误判成页眉。
         """
-        if len(indices) < 2:
+        if len(infos) < 2:
             return
         try:
             import re
@@ -354,7 +353,6 @@ class PdfToWord:
             from docx.oxml.ns import qn
             from docx.shared import Inches, Pt
 
-            infos = self._page_margin_info(src, indices, password)
             headers = {info["header"] for info in infos if info["header"]}
             footers = {info["footer"] for info in infos if info["footer"]}
             page_texts = {
@@ -620,7 +618,12 @@ class PdfToWord:
                         append_cells(a, cells)
                         trailing.append(child)
 
+                    # 表间分节符不能删：它承载 PDF 每页的 section 与页眉。
+                    # 只删空段落、分页符和表外残留行；分节段落原样排在合并后的
+                    # 表后面，Word 仍会在这里开始新的一节。
                     for child in between:
+                        if child.find(".//" + qn("w:sectPr")) is not None:
+                            continue
                         body.remove(child)
                     for child in trailing:
                         body.remove(child)
