@@ -59,6 +59,9 @@ def cmd_convert(args: argparse.Namespace) -> int:
         k: v
         for k, v in (
             ("quality", args.quality),
+            ("audio_bitrate", args.audio_bitrate),
+            ("sample_rate", args.sample_rate),
+            ("channels", args.channels),
             ("width", args.width),
             ("height", args.height),
             ("max_edge", args.max_edge),
@@ -214,6 +217,27 @@ def _report(source: Path, res, *, quiet: bool) -> None:
     print(f"   {res.path_desc} · {tier} · {res.elapsed:.2f}s")
     for w in res.warnings:
         print(f"   ⚠ {w}")
+
+
+def cmd_split_cue(args: argparse.Namespace) -> int:
+    from .cue import split_cue
+
+    try:
+        paths = split_cue(
+            Path(args.cue),
+            args.target,
+            audio=Path(args.audio) if args.audio else None,
+            out_dir=Path(args.out_dir) if args.out_dir else None,
+            preset=args.preset,
+            overwrite=args.overwrite,
+            progress=None if args.quiet else _progress_printer(),
+        )
+    except ConversionError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        return 1
+    for path in paths:
+        print(path)
+    return 0
 
 
 def cmd_formats(args: argparse.Namespace) -> int:
@@ -712,6 +736,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--max-edge", type=int, help="最长边不超过此值")
     c.add_argument("--scale", type=float, help="缩放倍率，如 0.5")
     c.add_argument("--lossless", action="store_true", help="无损模式（WebP 等支持）")
+    c.add_argument("--audio-bitrate", help="音频码率，如 192k / 320k")
+    c.add_argument("--sample-rate", type=int, help="音频采样率，如 44100 / 48000")
+    c.add_argument("--channels", type=int, help="音频声道数，如 1 / 2")
     c.add_argument("--strip", action="store_true", help="去掉 EXIF 等元数据")
     # 描摹：不是图标的位图默认拒绝，--force 强制
     c.add_argument(
@@ -762,6 +789,16 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--overwrite", action="store_true", help="允许覆盖已存在的文件")
     c.add_argument("--quiet", action="store_true", help="只输出产物路径")
     c.set_defaults(fn=cmd_convert)
+
+    sc = sub.add_parser("split-cue", help="按 CUE 索引分轨")
+    sc.add_argument("cue", help="CUE 文件")
+    sc.add_argument("-t", "--target", default="mp3", help="输出格式，默认 mp3")
+    sc.add_argument("-a", "--audio", help="CUE 未指定或路径不对时手动指定音频")
+    sc.add_argument("-d", "--out-dir", help="输出目录，默认 CUE 所在目录")
+    sc.add_argument("-p", "--preset", choices=list(PRESETS), help="参数预设")
+    sc.add_argument("--overwrite", action="store_true", help="允许覆盖已存在文件")
+    sc.add_argument("--quiet", action="store_true", help="只输出产物路径")
+    sc.set_defaults(fn=cmd_split_cue)
 
     f = sub.add_parser("formats", help="列出支持的格式")
     f.add_argument("-a", "--available", action="store_true", help="只显示已支持的")

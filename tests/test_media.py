@@ -408,3 +408,21 @@ def test_concat_mixed_codecs_falls_back_and_marks_lossy(media, tmp_path):
     )
     assert res.loss is LossTier.LOSSY
     assert any("转码" in w for w in res.warnings), res.warnings
+
+
+
+def test_audio_sample_rate_and_channels(media, tmp_path):
+    res = convert_file(
+        media["wav"], "mp3", out_dir=tmp_path, overwrite=True,
+        overrides={"sample_rate": 22050, "channels": 1, "audio_bitrate": "96k"},
+    )
+    probe = companion("ffmpeg", "ffprobe")
+    out = subprocess.run(
+        [
+            str(probe), "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=sample_rate,channels",
+            "-of", "csv=p=0", str(res.outputs[0].path),
+        ],
+        capture_output=True, text=True, timeout=60, check=True,
+    ).stdout.strip()
+    assert out == "22050,1"

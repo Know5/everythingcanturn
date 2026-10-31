@@ -120,6 +120,12 @@ convcore convert part1.mp4 part2.mp4 -t mp4 --concat -o joined.mp4
 # 多张图片合成动图（GIF/WebP/TIFF）
 convcore convert frame1.png frame2.jpg frame3.png -t gif --merge-images -o anim.gif
 
+# 音频参数：码率 / 采样率 / 声道
+convcore convert music.flac -t mp3 --audio-bitrate 320k --sample-rate 44100 --channels 2
+
+# CUE 分轨：默认自动找同名音频，可用 --audio 指定
+convcore split-cue album.cue -t mp3 -d ./tracks
+
 # 环境诊断：缺哪些依赖、哪些引擎没装
 convcore doctor
 ```
