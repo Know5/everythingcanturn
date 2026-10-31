@@ -125,6 +125,27 @@ def _refine(media_type: MediaType, head: bytes) -> MediaType:
     return media_type
 
 
+_ENCRYPTED_AUDIO = {
+    ".kgm": "酷狗 KGM",
+    ".kgma": "酷狗 KGMA",
+    ".kgg": "酷狗 KGG",
+    ".vpr": "酷狗 VPR",
+    ".kwm": "酷我 KWM",
+    ".ncm": "网易云 NCM",
+    ".qmc0": "QQ 音乐 QMC",
+    ".qmc3": "QQ 音乐 QMC",
+    ".qmcflac": "QQ 音乐 QMC",
+    ".qmcogg": "QQ 音乐 QMC",
+    ".mflac": "QQ 音乐 QMC",
+    ".mgg": "QQ 音乐 QMC",
+}
+
+
+def encrypted_audio_hint(path: Path) -> str | None:
+    """音乐客户端加密/DRM 格式的可读名称；只用于提示，不做解密。"""
+    return _ENCRYPTED_AUDIO.get(path.suffix.lower())
+
+
 def sniff_bytes(data: bytes, filename: str | None = None) -> MediaType | None:
     """从字节内容判定类型。filename 仅在魔数无结论时用于回退。"""
     head = data[:4096]

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import pytest
 from PIL import Image
 
 from convcore.formats import resolve_target
@@ -93,3 +94,18 @@ def test_jxl_signature_and_codestream():
     container = b"\x00\x00\x00\x0cJXL \r\n\x87\n" + b"\x00" * 32
     assert sniff_bytes(container) == "image/jxl"
     assert sniff_bytes(b"\xff\x0a" + b"\x00" * 32) == "image/jxl"
+
+
+def test_encrypted_music_extensions_get_actionable_error(tmp_path):
+    from convcore.pipeline import Converter
+    from convcore.types import ConversionError
+
+    encrypted = tmp_path / "song.kgm"
+    encrypted.write_bytes(b"not a real audio file")
+    with pytest.raises(ConversionError, match="加密音频"):
+        Converter().detect(encrypted)
+
+    unknown = tmp_path / "mystery.bin"
+    unknown.write_bytes(b"not a real audio file")
+    with pytest.raises(ConversionError, match="无法识别"):
+        Converter().detect(unknown)

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **加密音乐格式识别**：对酷狗 KGM/KGMA/KGG/VPR、酷我 KWM、网易云 NCM、
+  QQ 音乐 QMC 等扩展名给出明确提示；项目不内置 DRM 解密，只支持用户有权使用的
+  未加密音频或官方导出的 MP3/FLAC/WAV
 - **多图合成动图**：`convcore convert a.png b.jpg c.png -t gif --merge-images`，
   或 `pipeline.merge_files()`；支持 GIF / WebP / TIFF，默认每帧 100ms
   （`frame_duration` 可调）。GUI 的“图片序列”面板也可按队列顺序合成

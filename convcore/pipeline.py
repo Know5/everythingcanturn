@@ -76,6 +76,14 @@ class Converter:
         res = Resource(media_type="application/octet-stream", path=path)
         mt = sniff_resource(res)
         if mt is None:
+            from .sniff import encrypted_audio_hint
+
+            if hint := encrypted_audio_hint(path):
+                raise ConversionError(
+                    f"{path.name} 是 {hint} 加密音频，不是普通音频容器。"
+                    "本项目不内置 DRM 解密；请使用官方客户端导出你有权使用的 "
+                    "MP3/FLAC，或转换未加密文件。"
+                )
             raise ConversionError(f"无法识别文件类型：{path.name}")
         return mt
 

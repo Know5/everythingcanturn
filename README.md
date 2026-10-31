@@ -373,6 +373,10 @@ dist/convcore/convcore.exe  # 启动 GUI
    Web UI 都是每个任务新建一个 `Converter()`（约 0.1ms），自己写并发代码时照这个做。
 5. **OCR 是可选引擎**：未装 Tesseract 时，没有文本层的 PDF 转 Word / Markdown 会被拒绝并提示安装；
    装了之后可以 OCR，但输出是纯文本推断，段落/表格/错字都需要复核，中文需 `chi_sim` 语言包。
+6. **加密音乐格式不支持**：酷狗 KGM/KGMA/KGG/VPR、酷我 KWM、网易云 NCM、QQ 音乐 QMC
+   是客户端加密/DRM 容器，不是普通音频换后缀。本项目不内置解密，只识别并提示；
+   请使用官方客户端导出你有权使用的未加密音频，或转换 MP3/FLAC/WAV/M4A。所有处理
+   只在本机完成，不调用远程转换服务。
 
 ## 扩展
 
