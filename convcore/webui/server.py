@@ -59,6 +59,11 @@ class UiState:
     ) -> list[str]:
         return self.service.enqueue_merge_images(paths, target, preset)
 
+    def split_cue(
+        self, cue: str, target: str, audio: str | None, preset: str | None
+    ) -> list[str]:
+        return self.service.enqueue_cue(cue, target, Path(audio) if audio else None, preset)
+
     def cancel(self, jid: str) -> bool:
         return self.service.cancel(jid)
 
@@ -243,6 +248,19 @@ def make_handler(state: UiState):
                             self._err(f"未知目标格式：{it.get('target')}")
                             return
                     ids = state.enqueue(items, body.get("preset") or None)
+                    self._json({"ids": ids})
+                elif route == "/api/split-cue":
+                    cue = body.get("cue", "")
+                    if not Path(str(cue)).expanduser().is_file():
+                        self._err(f"文件不存在：{cue}")
+                        return
+                    target = body.get("target", "mp3")
+                    if resolve_target(target) is None:
+                        self._err(f"未知目标格式：{target}")
+                        return
+                    ids = state.split_cue(
+                        str(cue), target, body.get("audio"), body.get("preset") or None
+                    )
                     self._json({"ids": ids})
                 elif route == "/api/merge-images":
                     paths = body.get("paths") or []

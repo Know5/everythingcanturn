@@ -85,6 +85,7 @@ interface State {
   picker: PickerState;
   concat: ConcatState;
   imageMerge: ImageMergeState;
+  cueJob: Job | null;
   enginesOpen: boolean;
   helpOpen: boolean;
   formats: FormatsGroup[] | null;
@@ -107,6 +108,7 @@ interface State {
   runImageMerge: () => Promise<void>;
   toggleImageMerge: (enabled: boolean) => void;
   setImageMergeTarget: (mime: string) => void;
+  runCue: (cue: string, target: string) => Promise<void>;
   cancelJob: (id: string) => Promise<void>;
   applyJob: (job: Job) => void;
   setOutDir: (dir: string | null) => void;
@@ -163,6 +165,7 @@ export const useStore = create<State>((set, get) => ({
   picker: { target: null },
   concat: { enabled: false, target: null, job: null, count: 0 },
   imageMerge: { enabled: false, target: null, job: null, count: 0 },
+  cueJob: null,
   enginesOpen: false,
   helpOpen: false,
   formats: null,
@@ -267,11 +270,16 @@ export const useStore = create<State>((set, get) => ({
     ) {
       await api().cancel(imageJob.id).catch(() => false);
     }
+    const cue = get().cueJob;
+    if (cue && (cue.state === "running" || cue.state === "pending")) {
+      await api().cancel(cue.id).catch(() => false);
+    }
     set({
       files: [],
       running: false,
       concat: { enabled: false, target: null, job: null, count: 0 },
       imageMerge: { enabled: false, target: null, job: null, count: 0 },
+      cueJob: null,
     });
   },
 
@@ -441,6 +449,28 @@ export const useStore = create<State>((set, get) => ({
   setImageMergeTarget: (mime) =>
     set((s) => ({ imageMerge: { ...s.imageMerge, target: mime } })),
 
+  runCue: async (cue, target) => {
+    const { preset, running, ready: isReady } = get();
+    if (running || !isReady) return;
+    let ids: string[];
+    try {
+      ids = await api().split_cue(cue, target, null, preset || null, {});
+    } catch (e) {
+      set({ bootError: `启动 CUE 分轨失败：${e}` });
+      return;
+    }
+    set({
+      running: true,
+      cueJob: {
+        id: ids[0],
+        name: cue.split(/[\\/]/).pop(),
+        state: "pending",
+        progress: 0,
+        step: "排队中",
+      } as Job,
+    });
+  },
+
   cancelJob: async (id) => {
     await api().cancel(id).catch(() => false);
   },
@@ -470,6 +500,10 @@ export const useStore = create<State>((set, get) => ({
         s.imageMerge.job && s.imageMerge.job.id === job.id
           ? { ...s.imageMerge, job: { ...s.imageMerge.job, ...job } }
           : s.imageMerge;
+      const cueJob =
+        s.cueJob && s.cueJob.id === job.id
+          ? { ...s.cueJob, ...job }
+          : s.cueJob;
       const active =
         files.some(
           (f) =>
@@ -479,8 +513,10 @@ export const useStore = create<State>((set, get) => ({
           (concat.job.state === "running" || concat.job.state === "pending")) ||
         (imageMerge.job &&
           (imageMerge.job.state === "running" ||
-            imageMerge.job.state === "pending"));
-      return { files, concat, imageMerge, running: !!active, recent };
+            imageMerge.job.state === "pending")) ||
+        (cueJob &&
+          (cueJob.state === "running" || cueJob.state === "pending"));
+      return { files, concat, imageMerge, cueJob, running: !!active, recent };
     });
   },
 

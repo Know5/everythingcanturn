@@ -429,6 +429,8 @@ class UiJob:
     out_dir: Path | None
     stem: str | None
     sources: list[Path] = field(default_factory=list)
+    cue_path: Path | None = None
+    cue_audio: Path | None = None
     src_size: int = 0
     state: str = "pending"
     progress: float = 0.0
@@ -645,6 +647,61 @@ class UiService:
         ).start()
         return [jid]
 
+    def enqueue_cue(
+        self,
+        cue: str,
+        target: str = "mp3",
+        audio: Path | None = None,
+        preset: str | None = None,
+        opts: dict[str, Any] | None = None,
+        on_update: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[str]:
+        """CUE 分轨任务；一条 CUE 产生多个输出。"""
+        from .cue import parse_cue
+        from .formats import domain_of, resolve_target
+
+        cue_path = Path(cue).expanduser()
+        if not cue_path.is_file():
+            raise ConversionError(f"CUE 文件不存在：{cue_path}")
+        sheet = parse_cue(cue_path)
+        if not sheet.tracks:
+            raise ConversionError("CUE 里没有 TRACK 01")
+        source = audio or sheet.audio
+        if source is None:
+            from .cue import _infer_audio
+
+            source = _infer_audio(cue_path)
+        if source is None or not source.is_file():
+            raise ConversionError(
+                "找不到 CUE 对应的音频文件；请把音频放在同目录同名，或先用 CLI --audio 指定"
+            )
+        target_mt = resolve_target(target)
+        if target_mt is None:
+            raise ConversionError(f"未知目标格式：{target}")
+        if domain_of(target_mt) != "media":
+            raise ConversionError("CUE 分轨目标必须是音频格式")
+
+        jid = secrets.token_hex(6)
+        with self.lock:
+            self._prune()
+            self.jobs[jid] = UiJob(
+                id=jid,
+                source=cue_path,
+                sources=[source],
+                cue_path=cue_path,
+                cue_audio=source,
+                target=target_mt,
+                preset=preset,
+                overrides=dict(opts or {}),
+                out_dir=self.out_dir,
+                stem=cue_path.stem,
+                src_size=sum(p.stat().st_size for p in (cue_path, source)),
+            )
+        threading.Thread(
+            target=self._run, args=(jid, on_update), daemon=True
+        ).start()
+        return [jid]
+
     def _run(
         self,
         jid: str,
@@ -675,6 +732,37 @@ class UiService:
                 k: v for k, v in job.overrides.items() if v not in (None, "", False)
             }
             overrides["_cancel"] = lambda: job._cancel.is_set()
+
+            if job.cue_path is not None:
+                from .cue import split_cue
+
+                paths = split_cue(
+                    job.cue_path,
+                    job.target,
+                    audio=job.cue_audio,
+                    out_dir=job.out_dir or job.cue_path.parent,
+                    preset=job.preset,
+                    overwrite=False,
+                    progress=on_progress,
+                )
+                if job._cancel.is_set():
+                    push(state="cancelled", step="已取消")
+                    return
+                first = paths[0]
+                push(
+                    state="done",
+                    progress=1.0,
+                    step="完成",
+                    out_path=str(first),
+                    out_name=first.name,
+                    out_size=first.stat().st_size,
+                    loss="有损",
+                    tier="lossy",
+                    path_desc=f"CUE → {len(paths)} 轨",
+                    warnings=[f"已按 CUE 分成 {len(paths)} 个文件"],
+                    extra=len(paths) - 1,
+                )
+                return
 
             if len(job.sources) > 1:
                 from .formats import domain_of

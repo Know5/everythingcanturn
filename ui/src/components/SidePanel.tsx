@@ -1,4 +1,6 @@
-import { Progress, Select, Switch, Tooltip } from "antd";
+import { App as AntApp, Progress, Select, Switch, Tooltip } from "antd";
+import { ScissorOutlined } from "@ant-design/icons";
+import { useState } from "react";
 import {
   CheckCircleOutlined,
   DownOutlined,
@@ -8,6 +10,7 @@ import {
   ThunderboltFilled,
   WarningOutlined,
 } from "@ant-design/icons";
+import { api } from "../bridge";
 import { formatSize } from "../format";
 import { summary, targetOf, useStore } from "../store";
 import { radix } from "../theme";
@@ -28,6 +31,10 @@ export function SidePanel() {
   const runImageMerge = useStore((s) => s.runImageMerge);
   const toggleImageMerge = useStore((s) => s.toggleImageMerge);
   const setImageMergeTarget = useStore((s) => s.setImageMergeTarget);
+  const cueJob = useStore((s) => s.cueJob);
+  const runCue = useStore((s) => s.runCue);
+  const { message } = AntApp.useApp();
+  const [cueTarget, setCueTarget] = useState("audio/mpeg");
   const pickOutDir = useStore((s) => s.pickOutDir);
   const resetOutDir = useStore((s) => s.resetOutDir);
 
@@ -72,6 +79,16 @@ export function SidePanel() {
     if (row) row.count++;
     else outputs.set(t.mime, { label: t.label, ext: t.ext, count: 1 });
   }
+
+  const pickCue = async () => {
+    const paths = await api().pick_files();
+    const cue = paths.find((p) => p.toLowerCase().endsWith(".cue"));
+    if (!cue) {
+      message.error("请选择一个 .cue 文件");
+      return;
+    }
+    await runCue(cue, cueTarget);
+  };
 
   return (
     <aside className="side-panel">
@@ -267,6 +284,45 @@ export function SidePanel() {
             )}
           </div>
         )}
+
+        <div className="panel-divider" />
+
+        <div className="panel-block">
+          <div className="panel-title">CUE 分轨</div>
+          <div className="cue-row">
+            <Select
+              value={cueTarget}
+              onChange={setCueTarget}
+              style={{ flex: 1 }}
+              options={[
+                { value: "audio/mpeg", label: "MP3" },
+                { value: "audio/flac", label: "FLAC" },
+                { value: "audio/wav", label: "WAV" },
+              ]}
+            />
+            <button className="head-action" onClick={() => void pickCue()}>
+              <ScissorOutlined /> 选择 CUE
+            </button>
+          </div>
+          <div className="soft-note">
+            自动查找同目录同名音频；轨道标题会写入文件标签。
+          </div>
+          {cueJob && (
+            <div className="concat-status">
+              <div className="concat-status-head">
+                <span>{cueJob.step || "分轨中"}</span>
+                <span>{cueJob.extra ? `${cueJob.extra + 1} 轨` : ""}</span>
+              </div>
+              <Progress
+                percent={Math.round((cueJob.progress ?? 0) * 100)}
+                size="small"
+                showInfo={false}
+              />
+              {cueJob.error && <div className="concat-error">{cueJob.error}</div>}
+              {cueJob.outPath && <div className="soft-note">{cueJob.outPath}</div>}
+            </div>
+          )}
+        </div>
 
         <div className="panel-divider" />
 

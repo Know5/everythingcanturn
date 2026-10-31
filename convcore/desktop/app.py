@@ -109,6 +109,24 @@ class Api:
             paths, target, preset, opts, on_update=self._emit
         )
 
+    def split_cue(
+        self,
+        cue: str,
+        target: str,
+        audio: str | None,
+        preset: str | None,
+        opts: dict,
+    ) -> list[str]:
+        """按 CUE 分轨。"""
+        return self._service.enqueue_cue(
+            cue,
+            target,
+            Path(audio) if audio else None,
+            preset,
+            opts,
+            on_update=self._emit,
+        )
+
     def _emit(self, job: dict[str, Any]) -> None:
         """把任务状态推给前端。
 

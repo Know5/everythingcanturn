@@ -5,7 +5,7 @@
  */
 
 import { useEffect } from "react";
-import { App as AntApp, Alert, Popconfirm, Spin, Typography } from "antd";
+import { App as AntApp, Alert, Popconfirm, Progress, Spin, Typography } from "antd";
 import {
   ClearOutlined,
   InboxOutlined,
@@ -44,8 +44,10 @@ export default function App() {
   const run = useStore((s) => s.run);
   const runConcat = useStore((s) => s.runConcat);
   const runImageMerge = useStore((s) => s.runImageMerge);
+  const runCue = useStore((s) => s.runCue);
   const concat = useStore((s) => s.concat);
   const imageMerge = useStore((s) => s.imageMerge);
+  const cueJob = useStore((s) => s.cueJob);
   const toggleConcat = useStore((s) => s.toggleConcat);
   const toggleImageMerge = useStore((s) => s.toggleImageMerge);
   const running = useStore((s) => s.running);
@@ -97,6 +99,16 @@ export default function App() {
     } catch (e) {
       message.error(`打开对话框失败：${e}`);
     }
+  };
+
+  const pickCue = async () => {
+    const paths = await api().pick_files();
+    const cue = paths.find((p) => p.toLowerCase().endsWith(".cue"));
+    if (!cue) {
+      message.error("请选择一个 .cue 文件");
+      return;
+    }
+    await runCue(cue, "audio/mpeg");
   };
 
   const hasFiles = files.length > 0;
@@ -151,7 +163,30 @@ export default function App() {
       {ready && !hasFiles && (
         <div className="workspace empty">
           <div className="empty-stack">
-            <EmptyDrop onClick={() => void pick()} hot={dragOver} />
+            <EmptyDrop
+              onClick={() => void pick()}
+              hot={dragOver}
+              onCue={() => void pickCue()}
+            />
+            {cueJob && (
+              <div className="empty-cue-status">
+                <div className="concat-status-head">
+                  <span>{cueJob.step || "CUE 分轨中"}</span>
+                  <span>{cueJob.extra ? `${cueJob.extra + 1} 轨` : ""}</span>
+                </div>
+                <Progress
+                  percent={Math.round((cueJob.progress ?? 0) * 100)}
+                  size="small"
+                  showInfo={false}
+                />
+                {cueJob.error && (
+                  <div className="concat-error">{cueJob.error}</div>
+                )}
+                {cueJob.outPath && (
+                  <div className="soft-note">{cueJob.outPath}</div>
+                )}
+              </div>
+            )}
             <RecentPanel />
           </div>
         </div>

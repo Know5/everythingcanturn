@@ -116,6 +116,7 @@ def test_public_methods_are_the_intended_surface(api: Api) -> None:
         "convert",
         "concat",
         "merge_images",
+        "split_cue",
         "cancel",
         "cancel_all",
         "notify_drop",

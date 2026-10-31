@@ -24,7 +24,15 @@ export function TierMark({
 
 const FORMATS = ["PNG", "JPG", "WEBP", "PDF", "DOCX", "MD", "MP4", "MP3", "SVG", "ZIP"];
 
-export function EmptyDrop({ onClick, hot }: { onClick: () => void; hot: boolean }) {
+export function EmptyDrop({
+  onClick,
+  hot,
+  onCue,
+}: {
+  onClick: () => void;
+  hot: boolean;
+  onCue?: () => void;
+}) {
   return (
     <div
       className={`empty-drop${hot ? " hot" : ""}`}
@@ -43,15 +51,28 @@ export function EmptyDrop({ onClick, hot }: { onClick: () => void; hot: boolean 
         图片、文档、音视频与压缩包。自动识别格式，只列出真正可达的目标；
         多张图片或多段音视频可在队列里合并成一个输出。
       </p>
-      <button
-        className="empty-cta"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
-      >
-        <PlusOutlined /> 选择文件
-      </button>
+      <div className="empty-actions">
+        <button
+          className="empty-cta"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+        >
+          <PlusOutlined /> 选择文件
+        </button>
+        {onCue && (
+          <button
+            className="empty-cta subtle"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCue();
+            }}
+          >
+            CUE 分轨
+          </button>
+        )}
+      </div>
       <div className="format-chips">
         {FORMATS.map((f) => (
           <span key={f} className="format-chip">

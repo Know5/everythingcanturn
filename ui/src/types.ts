@@ -104,6 +104,13 @@ export interface PywebviewApi {
     preset: string | null,
     opts: Record<string, unknown>,
   ): Promise<string[]>;
+  split_cue(
+    cue: string,
+    target: string,
+    audio: string | null,
+    preset: string | null,
+    opts: Record<string, unknown>,
+  ): Promise<string[]>;
   cancel(jid: string): Promise<boolean>;
   cancel_all(): Promise<number>;
   reveal(path: string): Promise<boolean>;

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **桌面端 CUE 分轨**：空状态和右侧面板都可选择 .cue，默认 MP3，可切 FLAC/WAV；
+  自动查找同目录音频并显示分轨进度
 - **CUE 分轨与音频参数**：`convcore split-cue album.cue -t mp3` 按 INDEX 01
   分轨，按轨道标题命名，并把 title/artist/album/track 写入输出标签；
   新增 `--audio-bitrate` / `--sample-rate` / `--channels`
