@@ -169,6 +169,12 @@ def split_cue(
         dest = dest_dir / f"{track.number:02d} - {safe}{ext}"
         if progress:
             progress(i / len(sheet.tracks), f"分轨 {track.number:02d}/{len(sheet.tracks)}")
+        tags = {
+            "title": track.title,
+            "artist": track.performer or sheet.performer or "",
+            "album": sheet.title or "",
+            "track": f"{track.number}/{len(sheet.tracks)}",
+        }
         result = convert_file(
             source,
             target_mt,
@@ -179,6 +185,7 @@ def split_cue(
             overrides={
                 "start": track.start,
                 **({"duration": duration} if duration is not None else {}),
+                "metadata": {k: v for k, v in tags.items() if v},
             },
         )
         outputs.append(result.outputs[0].path)

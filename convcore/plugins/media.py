@@ -25,12 +25,13 @@ _VIDEO_OPTS = frozenset(
         "quality", "width", "height", "max_edge", "fps", "preset_speed",
         "video_bitrate", "audio_bitrate", "pix_fmt", "start", "duration",
         "force_transcode", "cpu_used", "svt_preset", "keep_metadata",
+        "metadata",
     }
 )
 _AUDIO_OPTS = frozenset(
     {
         "quality", "audio_bitrate", "sample_rate", "channels", "start",
-        "duration", "keep_metadata",
+        "duration", "keep_metadata", "metadata",
     }
 )
 

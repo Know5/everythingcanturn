@@ -247,6 +247,9 @@ def build_command(
     # 不加这两行时 ffmpeg 只带部分全局元数据，章节整段丢失。
     keep_meta = "0" if opts.get("keep_metadata", True) else "-1"
     cmd += ["-map_metadata", keep_meta, "-map_chapters", keep_meta]
+    for key, value in (opts.get("metadata") or {}).items():
+        if value is not None and str(value) != "":
+            cmd += ["-metadata", f"{key}={value}"]
 
     # 按流类型给编码参数。用 -c:v / -c:a 而不是逐流指定，因为同类流通常同处理。
     video_actions = [a for a in decision.actions if a.kind == "video" and a.action != "drop"]

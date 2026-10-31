@@ -40,6 +40,7 @@ def test_cue_parse_and_split(tmp_path):
         '    INDEX 01 00:00:00\n'
         '  TRACK 02 AUDIO\n'
         '    TITLE "Two"\n'
+        '    PERFORMER "Guest"\n'
         '    INDEX 01 00:02:00\n',
         encoding="utf-8",
     )
@@ -51,7 +52,20 @@ def test_cue_parse_and_split(tmp_path):
     out = split_cue(cue, "mp3", out_dir=tmp_path / "out", overwrite=True)
     assert [p.name for p in out] == ["01 - One.mp3", "02 - Two.mp3"]
     probe = companion("ffmpeg", "ffprobe")
-    for path in out:
+    for path, title, artist in (
+        (out[0], "One", "Artist"),
+        (out[1], "Two", "Guest"),
+    ):
+        tags = subprocess.run(
+            [
+                str(probe), "-v", "error", "-show_entries",
+                "format_tags=title,artist", "-of", "default=nw=1",
+                str(path),
+            ],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout
+        assert f"TAG:title={title}" in tags
+        assert f"TAG:artist={artist}" in tags
         duration = subprocess.run(
             [
                 str(probe), "-v", "error", "-show_entries", "format=duration",
